@@ -37,7 +37,7 @@ def args_parser():
                     metavar='LR', help='initial learning rate')
 
     parser.add_argument('--scheme', default='RLU',type=str,
-                        help='RLU, iRLG, LLGp, ZLGp')
+                        help='RLU, iRLG, LLGp, ZLGp, VLI, VLI_star, All')
 
     parser.add_argument('--fl_scheme', default='fedavg', type=str,
                         help='fedavg, fedprox, feddyn, scaffold')
@@ -61,8 +61,12 @@ def args_parser():
                     help='path to save checkpoint')
 
     parser.add_argument('-cpph', '--check_point_path', default='resnet18_CIFAR10_acc_92.63.pth', type=str, metavar='PATH',
-                    help='path to get checkpoint')
-    
+                    help='global-model checkpoint to attack; pass an empty string to attack an untrained model (official default)')
+
+    parser.add_argument('--rlu_posterior_fix', action='store_true',
+                        help='RLU posterior search: compare against the full new_mu vector instead of the official '
+                             'new_mu[last_epoch] scalar (a bug in the official code). Off by default = official behaviour.')
+
     args = parser.parse_args()
     return args
 

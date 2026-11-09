@@ -275,7 +275,7 @@ class Client_dyn(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -290,6 +290,7 @@ class Client_dyn(object):
                 average_cAcc += cAcc
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
+                w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])  # reset missing in official code
                 targets_epochs = []
                 self.load_model(global_weights)
 
@@ -394,7 +395,7 @@ class Client_dyn(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -496,7 +497,7 @@ class Client_dyn(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -638,7 +639,7 @@ class Client_dyn(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -755,7 +756,7 @@ class Client_dyn(object):
                 print("="*60)
                 print(f"{'Method':<10} | {'cAcc':<11} | {'irec':<11}")
                 for m in methods:
-                    print(f"{m:<10} | {result_cAcc[m]:10.2f}% | {result_irec[m]:10.2f}%")
+                    print(f"{m:<10} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
                 w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])
@@ -770,7 +771,7 @@ class Client_dyn(object):
         
         print(f"{'Method':<10} | {'cAcc':<10} | {'irec':<11}")
         for m in methods:
-            print(f"{m:<10} | {average_cAcc[m]:10.2f}% | {average_irec[m]:10.2f}%")
+            print(f"{m:<10} | {average_cAcc[m]:10.4f} | {average_irec[m]:10.4f}")
 
         return average_cAcc, average_irec
 
@@ -845,7 +846,7 @@ class Client_dyn(object):
         print("="*60)
         print(f"{'Method':<10} | {'cAcc':<11} | {'irec':<11}")
         for m in methods:
-            print(f"{m:<10} | {result_cAcc[m]:10.2f}% | {result_irec[m]:10.2f}%")
+            print(f"{m:<10} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
         
         print(f'Client {self.idx} Training Top 1 Acc at global round {global_epoch} : {train_acc}')
         return result_cAcc, result_irec
@@ -859,7 +860,7 @@ class Client_dyn(object):
                 
     def accuracy_calculation(self, n, existences, num_instances):
         class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-        cAcc = accuracy_score(existences, class_existences)
+        cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
         acc = accuracy_score(num_instances, n)
         res = np.where(n < num_instances, n, num_instances)
         labels = range(self.args.n_classes)

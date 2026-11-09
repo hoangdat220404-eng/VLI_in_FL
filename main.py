@@ -25,6 +25,8 @@ from DataSampling import get_dataloaders_shard,count_data_partitions,get_dataloa
 from option import args_parser
 args = args_parser()
 print(args)
+if args.scheme == 'VLI_star' and args.fl_scheme != 'fedavg':
+    raise ValueError('--scheme VLI_star currently supports --fl_scheme fedavg only; its derivation assumes the CE bias gradient')
 
 # Generating data partitions based on Dirichlet distribution
 Loaders_train,Loaders_test = get_dataloaders_Dirichlet(n_clients = args.n_clients, alpha=args.alpha, rand_seed = 0,
@@ -133,8 +135,12 @@ global_model = get_model(model_name=args.model,
                          tanh=tanh,
                          leaky_relu=False).cuda()
 
-checkpoint = torch.load("lenet5_SVHN_acc_88.58_19.pth", map_location=torch.device('cpu'), weights_only = False)
-global_model.load_state_dict(checkpoint)
+if args.check_point_path:
+    checkpoint = torch.load(args.check_point_path, map_location=torch.device('cpu'), weights_only = False)
+    global_model.load_state_dict(checkpoint)
+    print(f"==> loaded global model checkpoint: {args.check_point_path}")
+else:
+    print("==> no checkpoint given: attacking an UNTRAINED global model")
 global_weights = global_model.state_dict()
 
 
@@ -194,9 +200,16 @@ best_acc = 80.0
       
 cAcc = []
 iAcc = []
-cAccOverall = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0, 'LLG':0.0}
-iACcOverall = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0, 'LLG':0.0}
-methods = ['RLU', 'LLGp', 'ZLGp', 'VLI', 'LLG']
+
+
+def print_method_averages(cAcc_lists, iAcc_lists, title):
+    """cAcc_lists / iAcc_lists: {method: [per-client value, ...]} -> print the mean over clients."""
+    print('=' * 60)
+    print(title)
+    print(f"{'Method':<10} | {'cAcc':>10} | {'iAcc':>10}")
+    for m in cAcc_lists:
+        print(f"{m:<10} | {np.mean(cAcc_lists[m]):10.4f} | {np.mean(iAcc_lists[m]):10.4f}")
+
 
 
 if args.fl_scheme == 'feddyn':
@@ -228,15 +241,16 @@ if args.fl_scheme == 'feddyn':
         
         print('Selected Clients: %s' %(', '.join(['%2d' %item for item in selected_clients])))
 
+        round_cAcc, round_iAcc = {}, {}
         for idx in selected_clients:
             Clients[idx].load_model(global_weights)
             cAccOverall1, iACcOverall2  = Clients[idx].local_training(Global_epoch)
             local_weights[idx] = Clients[idx].model.state_dict()
             local_grads[idx] = Clients[idx].local_grad_vector
-            for m in methods:
-                cAccOverall[m] += cAccOverall1[m]
-                iACcOverall[m] += iACcOverall2[m]
-    
+            for m in cAccOverall1:
+                round_cAcc.setdefault(m, []).append(cAccOverall1[m])
+                round_iAcc.setdefault(m, []).append(iACcOverall2[m])
+
         avg_global_weights = average_weights([local_weights[i] for i in selected_clients])
         list_avg_grads = average_list_tensors([local_grads[i] for i in selected_clients])
         
@@ -252,18 +266,10 @@ if args.fl_scheme == 'feddyn':
         acc_top1, acc_top5 = global_acc(global_model, total_loader_train)
         print(f'Top 1 training accuracy: {acc_top1}, Top 5 accuracy: {acc_top5} at global round {Global_epoch}.')
 
-        average_cAcc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0}
-        average_iAcc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0}
-        for m in methods:
-            average_cAcc[m] = cAccOverall[m]/ len(selected_clients)
-            average_iAcc[m] = iACcOverall[m]/ len(selected_clients)
-        for m in methods:
-            print('average cAcc: ', average_cAcc[m])
-            print('average iAcc: ', average_iAcc[m])
-        for m in methods:
-            cAccOverall[m] = 0
-            iACcOverall[m] = 0
-else:   
+        print_method_averages(round_cAcc, round_iAcc,
+                              f'Average over {len(selected_clients)} selected clients, global round {Global_epoch}')
+else:
+    all_cAcc, all_iAcc = {}, {}
 
     for idx in range(args.n_clients):
         print('client: ', idx)
@@ -278,6 +284,8 @@ else:
             acc1, acc2 = Clients[idx].ZLGp(global_weights)
         if args.scheme == 'VLI':
             acc1, acc2 = Clients[idx].VLI(global_weights)
+        if args.scheme == 'VLI_star':
+            acc1, acc2 = Clients[idx].VLI_star(global_weights)
         if args.scheme == 'All':
             cAccOverall1, iACcOverall2 = Clients[idx].overall_attacks(global_weights)
         
@@ -285,24 +293,18 @@ else:
             cAcc.append(acc1)
             iAcc.append(acc2)
         elif args.scheme == 'All':
-            for m in methods:
-                cAccOverall[m] += cAccOverall1[m]
-                iACcOverall[m] += iACcOverall2[m]
-    
-    
+            for m in cAccOverall1:
+                all_cAcc.setdefault(m, []).append(cAccOverall1[m])
+                all_iAcc.setdefault(m, []).append(iACcOverall2[m])
+
+
     if args.scheme != 'All':
         average_cAcc = np.mean(np.array(cAcc))
         average_iAcc = np.mean(np.array(iAcc))
         print('average cAcc: ', average_cAcc)
         print('average iAcc: ', average_iAcc)
-    
+
     elif args.scheme == 'All':
-        average_cAcc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0}
-        average_iAcc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0}
-        for m in methods:
-            average_cAcc[m] = np.mean(cAccOverall[m])
-            average_iAcc[m] = np.mean(iACcOverall[m])
-        for m in methods:
-            print('average cAcc: ', average_cAcc[m])
-            print('average iAcc: ', average_iAcc[m])
-    
+        # previously np.mean() of a running SUM, i.e. the total over clients, not the average
+        print_method_averages(all_cAcc, all_iAcc, f'Average over {args.n_clients} clients')
+

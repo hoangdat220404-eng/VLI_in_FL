@@ -261,7 +261,7 @@ class Client_prox(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -276,6 +276,7 @@ class Client_prox(object):
                 average_cAcc += cAcc
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
+                w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])  # reset missing in official code
                 targets_epochs = []
                 self.load_model(global_weights)
 
@@ -378,7 +379,7 @@ class Client_prox(object):
                     n.append(self.args.local_epochs * prediction.count(i))
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -478,7 +479,7 @@ class Client_prox(object):
                     n[i] = round(n[i] * prop)
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -561,56 +562,15 @@ class Client_prox(object):
                 num_instances = np.zeros(self.args.n_classes)
                 for k in range(self.args.n_classes):
                     num_instances[k] = targets_epochs.count(k)
-                b_grad_epochs = b_grad_epochs / self.args.local_epochs
                 count = 0
                 count_computed += 1
 
-                h1_extraction = []
-                gradients_for_prediction = b_grad_epochs
-                length = np.linalg.norm(b_grad_epochs)
-
-                negative_elements = gradients_for_prediction[gradients_for_prediction < 0]
-    
-                if len(negative_elements) > 0:
-                    sum_negative = torch.sum(negative_elements)
-                else:
-                    sum_negative = torch.sum(gradients_for_prediction)
-
-                base_diagonal_val = sum_negative / batch_size
-                
-                
-                Basis = create_synthetic_basis_matrix(self.args.n_classes, base_diagonal_val)
-                probs = calculate_distribution_ratios(gradients_for_prediction, Basis)
-                max_p = np.max(probs)
-                
-    
-                accelerate = calculate_dynamic_boost(probs, length)
-
-              
-              
-                boost_factor = accelerate
-                
-                final_diagonal_val = base_diagonal_val * boost_factor
-                Basis = create_synthetic_basis_matrix(self.args.n_classes, final_diagonal_val)
-
-                residual = gradients_for_prediction.clone()
-                counts = np.zeros(self.args.n_classes, dtype=int)
-                
-                for step in range(batch_size):
-                    scores = np.dot(residual, Basis)
-                    best_idx = np.argmax(scores)
-                    counts[best_idx] += 1
-                    
-                    projection_val = 1.0
-                    component_to_remove =   Basis[:, best_idx]
-                    residual = residual - component_to_remove
-
-
-
-                n = counts
+                # Same VLI as --scheme All (VLI_attack on the summed bias gradient). The old inline copy
+                # called calculate_dynamic_boost without neg_val (crashed) and used the averaged gradient.
+                n = VLI_attack(b_grad_epochs, self.args)
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -726,7 +686,7 @@ class Client_prox(object):
                 print("="*60)
                 print(f"{'Method':<10} | {'cAcc':<11} | {'irec':<11}")
                 for m in methods:
-                    print(f"{m:<10} | {result_cAcc[m]:10.2f}% | {result_irec[m]:10.2f}%")
+                    print(f"{m:<10} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
                 w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])
@@ -741,7 +701,7 @@ class Client_prox(object):
         
         print(f"{'Method':<10} | {'cAcc':<10} | {'irec':<11}")
         for m in methods:
-            print(f"{m:<10} | {average_cAcc[m]:10.2f}% | {average_irec[m]:10.2f}%")
+            print(f"{m:<10} | {average_cAcc[m]:10.4f} | {average_irec[m]:10.4f}")
 
         return average_cAcc, average_irec
 
@@ -762,7 +722,7 @@ class Client_prox(object):
                 
     def accuracy_calculation(self, n, existences, num_instances):
         class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-        cAcc = accuracy_score(existences, class_existences)
+        cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
         acc = accuracy_score(num_instances, n)
         res = np.where(n < num_instances, n, num_instances)
         labels = range(self.args.n_classes)

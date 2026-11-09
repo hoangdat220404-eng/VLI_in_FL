@@ -1,0 +1,308 @@
+% VLI* theoretical section. Compile standalone with pdflatex if desired.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\newtheorem{assumption}{Assumption}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\pos}[1]{[#1]_+}
+
+\begin{document}
+\section{Bias-gradient label recovery and VLI$^*$}
+\label{sec:vli-star}
+
+\paragraph{Scope.} This section studies the class counts in one client window
+from the accumulated cross-entropy gradient of the final-layer bias. It does
+not claim that the difficulty vector or confusion matrix introduced below can
+be recovered from a shared update. Their estimation is a separate problem.
+The main results are: (i) the exact relationship between bias gradients and
+per-class error mass; (ii) a precise sense in which auxiliary-only
+calibrations lose label dependence as training error vanishes; and (iii) an
+identifiable estimator when class difficulty and the error-confusion geometry
+are known.
+
+\subsection{Setup and notation}
+Let a client window contain $n$ examples from $C$ classes. For example $i$,
+let $y_i\in\{1,\ldots,C\}$ be its label, $z_i\in\R^C$ the logits, and
+$p_i=\operatorname{softmax}(z_i)$. The cross-entropy loss is
+$\ell_i=-\log p_{i,y_i}$. Define the bias-gradient signal
+\[
+  G=\sum_{i=1}^n(p_i-e_{y_i}), \qquad
+  N_j=\#\{i:y_i=j\}, \qquad \sum_jN_j=n.
+\]
+The code accumulates mean-loss gradients per minibatch. When all minibatches
+have size $B$, that signal differs from the example-sum convention above by a
+common positive factor (and possibly by a further common window normalization).
+All scale-invariant formulas below are unchanged by such a factor. A server
+weight update has the opposite sign under plain SGD; here $G$ always denotes
+the loss gradient, not the signed parameter update.
+
+For each example let $\epsilon_i=1-p_{i,y_i}$ and
+$\bar\epsilon=n^{-1}\sum_i\epsilon_i$. For a present class $j$, let
+\[
+ \bar\epsilon_j=\frac{1}{N_j}\sum_{i:y_i=j}\epsilon_i,
+ \qquad a_j=N_j\bar\epsilon_j.
+\]
+For absent classes set $a_j=0$; $\bar\epsilon_j$ is undefined there and a
+positive placeholder may be used for $r_j$ because it is multiplied by
+$a_j=0$. Define the off-diagonal error-transition matrix
+\[
+ Q_{jk}=\begin{cases}
+ \displaystyle\frac{\sum_{i:y_i=j}p_{i,k}}{a_j},& k\ne j,\ a_j>0,\\
+ 0,& k=j.
+ \end{cases}
+\]
+Every defined row is nonnegative and sums to one. When a class has zero error
+mass, its row can be assigned any probability distribution over the other
+classes; it contributes nothing to $Q^Ta$. Define
+\[
+ \bar\epsilon=\frac1n\sum_j a_j,\qquad
+ r_j=\frac{\bar\epsilon_j}{\bar\epsilon}\quad(N_j>0).
+\]
+Thus $a_j=N_jr_j\bar\epsilon$ for present classes.
+
+\subsection{Exact gradient identities}
+\begin{lemma}[Gradient norm and training loss]
+\label{lem:gradient-bound}
+For every example, $\|p_i-e_{y_i}\|_1=2\epsilon_i$. Consequently,
+\[
+ \|G\|_1\le 2n\bar\epsilon\le 2nL_{\rm train},
+ \qquad L_{\rm train}=\frac1n\sum_i\ell_i.
+\]
+\end{lemma}
+\begin{proof}
+The true-class coordinate has absolute value $1-p_{i,y_i}=\epsilon_i$.
+All other coordinates are nonnegative and sum to $1-p_{i,y_i}=\epsilon_i$.
+This proves the per-example equality. The triangle inequality gives
+$\|G\|_1\le\sum_i\|p_i-e_{y_i}\|_1=2n\bar\epsilon$.
+For $x\in(0,1]$, $1-x\le-\log x$; apply it to $x=p_{i,y_i}$ and average.
+\end{proof}
+
+\begin{lemma}[Count, error-mass, and confusion identities]
+\label{lem:exact-identities}
+Let $P_j=\sum_i p_{i,j}$. Then
+\[
+ G_j=P_j-N_j=-a_j+E_j,\qquad
+ E_j=\sum_{i:y_i\ne j}p_{i,j},\qquad
+ N_j=P_j-G_j.
+\]
+Moreover, for any row-stochastic $Q$ defined above,
+\[
+                     G=-(I-Q^T)a. \tag{1}
+\]
+If $N_j=0$, then $G_j=P_j\ge0$.
+\end{lemma}
+\begin{proof}
+The $j$th coordinate of $G$ sums all predicted probability assigned to class
+$j$ and subtracts one for every true class-$j$ example, yielding $P_j-N_j$.
+Separate $P_j$ into its true-class contribution
+$\sum_{i:y_i=j}p_{i,j}=N_j-a_j$ and its other-class contribution $E_j$.
+This gives the first identities and the absent-class sign property. For each
+target class $k$, the incoming error mass is
+\[
+ E_k=\sum_{j\ne k}\sum_{i:y_i=j}p_{i,k}
+     =\sum_j a_jQ_{j,k}=(Q^Ta)_k.
+\]
+Substituting in $G=-a+E$ proves (1).
+\end{proof}
+
+\begin{theorem}[Auxiliary-only calibration becomes label-independent]
+\label{thm:aux-collapse}
+Let an estimator of normalized class proportions have the form
+\[
+ \widehat\pi=\Phi(c-G/n),
+\]
+where $c$ depends only on information outside the attacked client window and
+$\Phi$ is $L_\Phi$-Lipschitz in a stated norm. Then
+\[
+ \|\widehat\pi-\Phi(c)\|
+ \le \frac{2L_\Phi}{n}\|G\|_1
+ \le 4L_\Phi\bar\epsilon
+ \le 4L_\Phi L_{\rm train}. \tag{2}
+\]
+Hence as $L_{\rm train}\to0$, the estimate approaches a value determined by
+$c$, not by the attacked labels. If an estimator returns counts $n\Phi(\cdot)$,
+the corresponding count bound is multiplied by $n$.
+\end{theorem}
+\begin{proof}
+The Lipschitz property gives
+$\|\Phi(c-G/n)-\Phi(c)\|\le L_\Phi\|G/n\|_1$. Apply
+Lemma~\ref{lem:gradient-bound}. The limit follows directly.
+\end{proof}
+\paragraph{Interpretation and limitation.} The theorem applies to an
+implementation only after its exact map, normalization, clipping, and
+rounding have been shown to satisfy this representation and Lipschitz
+condition. In particular, it is not by itself a proof that every RLU posterior
+search or every auxiliary-calibrated heuristic in the repository satisfies
+(2). Simplex normalization can also fail to be globally Lipschitz near a
+zero denominator.
+
+\begin{proposition}[Held-out error gap]
+\label{prop:heldout-gap}
+For any example misclassified by the argmax rule, $p_y\le1/2$ and therefore
+$1-p_y\ge1/2$. If the held-out error rate is $\tau_{\rm err}$, then
+\[
+ \bar\epsilon_{\rm aux}\ge\tau_{\rm err}/2.
+\]
+If simultaneously $\bar\epsilon_{\rm train}\to0$ and
+$\tau_{\rm err}$ stays bounded away from zero, then
+$\bar\epsilon_{\rm aux}/\bar\epsilon_{\rm train}\to\infty$.
+\end{proposition}
+\begin{proof}
+On a misclassified example some $k\ne y$ has $p_k\ge p_y$. Since
+$p_k+p_y\le1$, $p_y\le1/2$. Average the resulting lower bound on
+$1-p_y$ over the held-out set. The ratio statement follows.
+\end{proof}
+
+\subsection{Identifiability from known error geometry}
+\begin{assumption}[Known irreducible error geometry]
+\label{ass:geometry}
+The matrix $Q$ is known, row-stochastic, nonnegative, has zero diagonal, and
+is irreducible. The relative difficulty vector $r$ is known and strictly
+positive on present classes. At least one class is absent, and $\bar\epsilon>0$.
+\end{assumption}
+
+\begin{theorem}[Recovery with known $(r,Q)$]
+\label{thm:general-recovery}
+Under Assumption~\ref{ass:geometry}, the nonnegative solution of (1) whose
+smallest feasible point lies on the boundary determines $a$ uniquely. If
+$v>0$ is the normalized Perron vector satisfying $Q^Tv=v$ and
+$\one^Tv=1$, then every solution of (1) is
+\[
+ a=a_0+tv,\qquad a_0=(I-Q^T)^+(-G).
+\]
+The condition $a\ge0$ and at least one absent class selects
+\[
+ t=\max_j\left(-\frac{a_{0,j}}{v_j}\right),
+ \qquad
+ \widehat N_j=n\frac{a_j/r_j}{\sum_k a_k/r_k}. \tag{3}
+\]
+For exact $G,r,Q$, (3) equals the true class counts.
+\end{theorem}
+\begin{proof}
+Since $Q$ is irreducible and stochastic, Perron--Frobenius theory gives a
+one-dimensional nullspace of $I-Q^T$, spanned by a strictly positive $v$.
+Thus all solutions of (1) differ by $tv$. The constraint
+$a_{0,j}+tv_j\ge0$ for every $j$ is equivalent to
+$t\ge\max_j(-a_{0,j}/v_j)$. At this smallest feasible $t$, at least one
+coordinate is zero. Conversely, the true $a$ is nonnegative and has a zero
+coordinate because at least one class is absent; it must be this boundary
+solution. For each present class, $a_j=N_jr_j\bar\epsilon$. Therefore
+$a_j/r_j=N_j\bar\epsilon$, and normalizing these values to sum to $n$ gives
+the true counts. Absent-class terms are zero regardless of the positive
+placeholder used for their $r_j$.
+\end{proof}
+\paragraph{Noisy observations.} With noisy $G$ or misspecified $Q$, the
+linear system may not have an exact nonnegative solution. A practical method
+must report the residual and use a constrained least-squares or regularized
+fit. Reducible $Q$ can have a higher-dimensional nullspace and is not covered
+by this identifiability theorem.
+
+\begin{corollary}[Difficulty-mismatch bound]
+\label{cor:kappa}
+Suppose $Q$ is known and the boundary solution $a$ is exact, but the estimator
+uses uniform difficulty $r_j=1$ rather than the true $r$. Let
+$\kappa=r_{\max}/r_{\min}$ over present classes. Then its instance recovery
+rate, defined as $\sum_j\min(\widehat\pi_j,\pi_j)$, is at least
+$1/\kappa$.
+\end{corollary}
+\begin{proof}
+The estimate is $q_j=a_j/A$, where $A=\sum_k a_k$. The true proportion is
+$\pi_j=(a_j/r_j)/Z$, where $Z=\sum_k a_k/r_k$. Hence
+\[
+ \frac{q_j}{\pi_j}=r_j\frac{Z}{A}.
+\]
+The factor $Z/A$ is a weighted average of $1/r_k$, so it is at least
+$1/r_{\max}$. Thus $q_j\ge\pi_j/\kappa$ for every present class, and
+$\min(q_j,\pi_j)\ge\pi_j/\kappa$. Summing proves the claim.
+\end{proof}
+
+\subsection{Symmetric closed form and relation to VLI peeling}
+\begin{assumption}[Symmetric error geometry]
+\label{ass:symmetric}
+All present classes have the same mean error, so $r_j=1$. Every class
+distributes its error mass uniformly over the other $C-1$ classes:
+$Q_{jk}=1/(C-1)$ for $k\ne j$.
+\end{assumption}
+
+\begin{theorem}[Closed-form VLI$^*$]
+\label{thm:closed-form}
+Under Assumption~\ref{ass:symmetric} and at least one absent class,
+\[
+ G_j=\frac{n\bar\epsilon-Ca_j}{C-1},\qquad
+ G_{\max}=\frac{n\bar\epsilon}{C-1},\qquad
+ N_j=\frac{n}{C}\left(1-\frac{G_j}{G_{\max}}\right). \tag{4}
+\]
+The formula is invariant to multiplying $G$ by a positive scalar.
+\end{theorem}
+\begin{proof}
+Under uniform confusion, $(Q^Ta)_j=(\sum_k a_k-a_j)/(C-1)$. By (1),
+\[
+ G_j=-a_j+\frac{\sum_k a_k-a_j}{C-1}
+     =\frac{\sum_k a_k-Ca_j}{C-1}.
+\]
+Since $\sum_k a_k=n\bar\epsilon$, this proves the first equality. An absent
+class has $a_j=0$, so it attains $G_{\max}=n\bar\epsilon/(C-1)$; no other
+coordinate can exceed it because $a_j\ge0$. Rearranging and using
+$a_j=N_j\bar\epsilon$ gives (4). A common positive scale cancels in the
+ratio $G_j/G_{\max}$.
+\end{proof}
+
+Let $S_- = \sum_{j:G_j<0}G_j<0$ and let the synthetic basis have diagonal
+$d<0$ and off-diagonal $-d/(C-1)$. The signal-matched diagonal magnitude is
+\[
+ d^*=-\frac{(C-1)G_{\max}}{n},\qquad
+ \operatorname{boost}^*=\frac{d^*}{S_-/n}
+ =\frac{(C-1)G_{\max}}{-S_-}. \tag{5}
+\]
+Here the code's base diagonal is $S_-/n$, so its boost is positive. (Equation
+(5) writes the ratio using magnitudes; equivalently
+$\operatorname{boost}^*=(C-1)G_{\max}/\sum_j(-G_j)_+$.) With this diagonal,
+each class-count increment subtracts exactly its symmetric per-example basis
+vector, up to the common signal scale. Greedy peeling therefore has the same
+residual scores as the closed-form proportions in (4), and integer
+largest-remainder rounding gives the same counts when the model is exactly
+on the symmetric model.
+
+If only one class is present, $G_{\max}=n\bar\epsilon/(C-1)$ and
+$-S_-=n\bar\epsilon$, so $\operatorname{boost}^*=1$. In the symmetric case
+with several present classes, the ratio adjusts the basis magnitude to the
+error scale inferred from an absent class. This replaces the current
+scale-dependent heuristic factors with a directly derived value.
+
+\subsection{Margin averaging caveat}
+For a sample with margin
+$M=z_y-\log\sum_{k\ne y}e^{z_k}$, its error is exactly
+$\epsilon=(1+e^M)^{-1}$. When $M$ is large and positive,
+$\epsilon\approx e^{-M}$. If margins within a class are approximately
+$\mathcal N(\mu,\sigma^2)$ and the large-margin approximation is valid over
+most of their mass, then
+\[
+ \mathbb E[e^{-M}]=e^{-\mu+\sigma^2/2},
+ \qquad e^{-\mathbb E[M]}=e^{-\mu}.
+\]
+Thus plugging in a mean margin underestimates this exponential surrogate by
+$e^{\sigma^2/2}$. Jensen's inequality gives
+$\mathbb E[e^{-M}]\ge e^{-\mathbb E[M]}$. This is an asymptotic explanation,
+not an exact formula for logistic error: a Gaussian margin has nonzero mass
+outside the large-positive-margin regime, where $\epsilon\approx e^{-M}$ is
+not accurate.
+
+\subsection{What the theorems do not establish}
+The exact identities hold for per-example cross-entropy bias gradients,
+including examples evaluated at different local model states. They do not
+automatically identify a server's full optimizer update when it also contains
+momentum state, proximal terms, weight decay, or FedDyn correction terms.
+The current generalized implementation takes $(r,Q)$ as inputs; these are
+oracle diagnostics in the accompanying evaluation script. Recovering them
+from public model weights, held-out auxiliary data, or the shared update is
+an open step. Finally, if every class appears in the attacked window, the
+absent-class boundary used in (3)--(4) is unavailable.
+
+\end{document}

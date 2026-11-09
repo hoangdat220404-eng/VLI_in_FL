@@ -92,6 +92,54 @@ python main.py --scheme ZLGp --local_epoch 10 --dataset CIFAR100 --n_classes 100
 python main.py --local_epoch 5 --dataset CIFAR10 --momentum 0.0 --fl_scheme feddyn --weight_decay 1e-3 --alpha_coefficient 1e-2 --alpha 0.5 --batch_size 64 --model resnet18 --hidden 512
 ```
 
+## VLI* theory and checkpoint diagnostics
+
+`VLI_star_theory.tex` contains the derivations for the symmetric closed-form
+estimator and the generalized estimator with supplied `(r, Q)`. The callable
+implementations are `VLI_star_closed_form` and `VLI_star_generalized` in
+`client/attacks.py`. Both take the accumulated **bias-gradient** vector, not
+the weight-gradient feature sum used by the existing FedAvg `Client.VLI` path.
+The generalized routine currently treats `r` and `Q` as known inputs; it does
+not claim to infer them from a shared update.
+
+Run the closed-form VLI* through the existing client evaluation loop with
+FedAvg:
+
+```bash
+python main.py --scheme VLI_star --fl_scheme fedavg \
+  --dataset CIFAR10 --model resnet18 --hidden 512 --n_classes 10 \
+  --batch_size 64 --local_epochs 10 --alpha 0.5 \
+  --check_point_path path/to/model.pth
+```
+
+This CLI path uses summed cross-entropy bias gradients and reports per-client
+window-averaged cAcc and iAcc. `VLI_star_generalized` remains a callable
+function because `main.py` has no principled source for oracle `r` and `Q`.
+The CLI currently rejects FedProx and FedDyn for VLI*: their communicated
+updates include additional objective/optimizer terms outside the closed-form
+derivation.
+
+Measure train/aux error, per-client difficulty ratio `kappa`, and class-wise
+error-transition rows on checkpoints with:
+
+```bash
+python scripts/measure_vli_star_diagnostics.py \
+  --checkpoint checkpoints/model_a.pth checkpoints/model_b.pth \
+  --dataset CIFAR10 --model resnet18 --hidden 512 \
+  --n-clients 10 --alpha 0.5 --client-ids all --prop 0.1 \
+  --batch-size 64 --local-epochs 10
+```
+
+The script writes `summary.csv`, `Q_rows.csv`, and `window_recovery.csv` under
+`results/vli_star_diagnostics/` by default. These are **oracle diagnostics**:
+measuring `epsilon_train`, `r`, and train-derived rows of `Q` uses the private
+client labels. Rows for absent or numerically zero-error classes are filled
+from class-conditional aux data and explicitly marked; they do not affect
+`Q^T a` when that class has zero error mass. `window_recovery.csv` compares the closed form and the
+generalized estimator with oracle window-level `(r, Q)` against the true
+window counts. This checks the identities and their assumptions on checkpoint
+outputs, but does not show that `(r, Q)` are attacker-estimable.
+
 
 
 #### Citeation

@@ -18,6 +18,9 @@ def estimate_static_RLU_with_posterior(args, N, mu, new_mu, O):
     count = 0
     unit = args.local_epochs
     last_epoch = args.local_epochs - 1
+    # Official code compares against new_mu[last_epoch] (one scalar element of the class-mean vector);
+    # --rlu_posterior_fix compares against the whole vector, which is what the paper (Alg. 2) describes.
+    target_mu = new_mu if getattr(args, 'rlu_posterior_fix', False) else new_mu[last_epoch]
     while max_diff >= 0.1 and count < 5:
         count += 1
         n = [round(i / args.local_epochs) for i in N]
@@ -40,11 +43,11 @@ def estimate_static_RLU_with_posterior(args, N, mu, new_mu, O):
                 Delta[i] = sum_delta
             new_shift.append(new_shift[-1] + Delta)
             new_shift_softmax.append(scipy.special.softmax(new_shift[-1]))
-        Diff = new_shift[last_epoch] - new_mu
+        Diff = new_shift[last_epoch] - target_mu
 
-        larger = np.where(new_shift[last_epoch] - new_mu >= 0)[0]
+        larger = np.where(new_shift[last_epoch] - target_mu >= 0)[0]
         abs_larger = abs(Diff[larger])
-        smaller = np.where(new_shift[last_epoch] - new_mu < 0)[0]
+        smaller = np.where(new_shift[last_epoch] - target_mu < 0)[0]
         abs_smaller = abs(Diff[smaller])
 
         if len(larger.tolist()) == 0 or len(smaller.tolist()) == 0:
@@ -202,7 +205,7 @@ def estimate_static_LLG(args, model,aux_data):
     criterion = nn.CrossEntropyLoss()
     K = args.n_classes
     g_bar = 0
-    prop = 1
+    prop = args.prop  # official value; was changed to 1 (whole test set, ~10x more aux than RLU/ZLG+)
     for k in range(K):
         dict_k = label_dict[k]
         aux_num = int(prop*len(dict_k))

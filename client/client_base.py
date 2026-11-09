@@ -10,7 +10,7 @@ import torch
 from client.client_utils import estimate_static_RLU, estimated_entropy_from_grad, estimate_static_RLU_with_posterior
 from client.client_utils import estimate_static_LLG,estimate_static_ZLG
 from client.client_utils import create_synthetic_basis_matrix, calculate_distribution_ratios, estimate_static_VLI, estimate_static_VLI_RLU, calculate_dynamic_boost
-from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack
+from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form
 
 import torch.nn.functional as F
 
@@ -244,7 +244,7 @@ class Client(object):
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -257,6 +257,8 @@ class Client(object):
                 average_cAcc += cAcc
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
+                # official code forgot this reset, so W kept accumulating across rounds
+                w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])
                 targets_epochs = []
                 self.load_model(global_weights)
 
@@ -353,7 +355,7 @@ class Client(object):
     
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -452,7 +454,7 @@ class Client(object):
                     n[i] = round(n[i] * prop)
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -471,6 +473,52 @@ class Client(object):
         average_cAcc = average_cAcc / count_computed
 
         print('average irec:', average_irec)
+        return average_cAcc, average_irec
+
+    def VLI_star(self, global_weights):
+        """Closed-form VLI* from accumulated cross-entropy bias gradients (FedAvg)."""
+        self.model.train()
+        count = 0
+        completed_windows = 0
+        average_cAcc = 0.0
+        average_irec = 0.0
+        b_grad_epochs = torch.zeros(self.args.n_classes)
+        targets_epochs = []
+
+        for inputs, targets in self.trainloader:
+            inputs, targets = inputs.cuda(), targets.cuda(non_blocking=True)
+            targets_epochs.append(targets.detach().cpu())
+            outputs, _ = self.model(inputs)
+            loss = self.criterion(outputs, targets)
+            self.optimizer.zero_grad()
+            loss.backward()
+            b_grad_epochs += self.model.fc.bias.grad.detach().cpu()
+            self.optimizer.step()
+            count += 1
+
+            if count == self.args.local_epochs:
+                window_targets = torch.cat(targets_epochs, dim=0).numpy()
+                num_instances = np.bincount(window_targets, minlength=self.args.n_classes)
+                existences = (num_instances > 0).astype(int).tolist()
+                prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
+                _, irec, cAcc = self.accuracy_calculation(prediction, existences, num_instances)
+                average_irec += irec
+                average_cAcc += cAcc
+                completed_windows += 1
+
+                count = 0
+                b_grad_epochs.zero_()
+                targets_epochs = []
+                self.load_model(global_weights)
+                self.optimizer.state.clear()
+
+        if completed_windows == 0:
+            raise ValueError("VLI_star needs at least one complete local_epochs window")
+        self.load_model(global_weights)
+        average_irec /= completed_windows
+        average_cAcc /= completed_windows
+        print('VLI_star average irec:', average_irec)
+        print('VLI_star average cAcc:', average_cAcc)
         return average_cAcc, average_irec
 
     def VLI(self, global_weights):
@@ -526,7 +574,9 @@ class Client(object):
 
             
             # probs_epochs += torch.sum(probs , dim=0)/self.args.batch_size
-            if (count-1) != 0 and (count-1) % self.args.local_epochs == 0 :
+            # window = exactly local_epochs batches (old condition made the first window local_epochs+1 batches)
+            if count == self.args.local_epochs:
+                count = 0
                 # new_mu, new_shift = estimate_static_VLI_RLU(self.args, copy.deepcopy(self.model), self.aux_dataset)
 
                 # print("Probs: ", probs_epochs/self.args.local_epochs)
@@ -586,7 +636,7 @@ class Client(object):
                 n = counts
 
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-                cAcc = accuracy_score(existences, class_existences)
+                cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
                 acc = accuracy_score(num_instances, n)
                 res = np.where(n < num_instances, n, num_instances)
                 labels = range(self.args.n_classes)
@@ -694,7 +744,7 @@ class Client(object):
                 print("="*60)
                 print(f"{'Method':<10} | {'cAcc':<11} | {'irec':<11}")
                 for m in methods:
-                    print(f"{m:<10} | {result_cAcc[m]:10.2f}% | {result_irec[m]:10.2f}%")
+                    print(f"{m:<10} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
                 w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])
@@ -709,7 +759,7 @@ class Client(object):
         
         print(f"{'Method':<10} | {'cAcc':<10} | {'irec':<11}")
         for m in methods:
-            print(f"{m:<10} | {average_cAcc[m]:10.2f}% | {average_irec[m]:10.2f}%")
+            print(f"{m:<10} | {average_cAcc[m]:10.4f} | {average_irec[m]:10.4f}")
 
         return average_cAcc, average_irec
 
@@ -730,7 +780,7 @@ class Client(object):
     
     def accuracy_calculation(self, n, existences, num_instances):
         class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
-        cAcc = accuracy_score(existences, class_existences)
+        cAcc = accuracy_score([1 if x > 0 else 0 for x in num_instances], class_existences)
         acc = accuracy_score(num_instances, n)
         res = np.where(n < num_instances, n, num_instances)
         labels = range(self.args.n_classes)
