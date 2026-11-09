@@ -135,12 +135,12 @@ global_model = get_model(model_name=args.model,
                          tanh=tanh,
                          leaky_relu=False).cuda()
 
-if args.check_point_path:
-    checkpoint = torch.load(args.check_point_path, map_location=torch.device('cpu'), weights_only = False)
-    global_model.load_state_dict(checkpoint)
-    print(f"==> loaded global model checkpoint: {args.check_point_path}")
-else:
-    print("==> no checkpoint given: attacking an UNTRAINED global model")
+# if args.check_point_path:
+#     checkpoint = torch.load(args.check_point_path, map_location=torch.device('cpu'), weights_only = False)
+#     global_model.load_state_dict(checkpoint)
+#     print(f"==> loaded global model checkpoint: {args.check_point_path}")
+# else:
+#     print("==> no checkpoint given: attacking an UNTRAINED global model")
 global_weights = global_model.state_dict()
 
 
