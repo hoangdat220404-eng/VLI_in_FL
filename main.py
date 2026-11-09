@@ -165,7 +165,7 @@ for idx in range(args.n_clients):
         Clients.append(Client_dyn(args, Loaders_train[idx], idx, device, args.model, aux_dataset, alpha_coef_adpt))
 
 # Attacking after training the global model
-args.epochs = 30 # Giả sử bạn set lại epoch > 0 để chạy
+args.epochs = 5 # Giả sử bạn set lại epoch > 0 để chạy
 best_acc = 80.0
 
 for epoch in range(args.epochs):
