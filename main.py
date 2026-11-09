@@ -165,36 +165,36 @@ for idx in range(args.n_clients):
         Clients.append(Client_dyn(args, Loaders_train[idx], idx, device, args.model, aux_dataset, alpha_coef_adpt))
 
 # Attacking after training the global model
-args.epochs = 20 # Giả sử bạn set lại epoch > 0 để chạy
+args.epochs = 30 # Giả sử bạn set lại epoch > 0 để chạy
 best_acc = 80.0
 
-# for epoch in range(args.epochs):
-#     local_weights = []
-#     clients_models = []
-#     global_model.train()
-#     print(f'\n | Global Training Round : {epoch+1} |\n')
+for epoch in range(args.epochs):
+    local_weights = []
+    clients_models = []
+    global_model.train()
+    print(f'\n | Global Training Round : {epoch+1} |\n')
 
-#     sampled_clients = np.random.choice(args.n_clients, K , replace=False)
-#     for idx in sampled_clients:
-#         Clients[idx].load_model(global_weights)
-#         Clients[idx].local_training(epoch)
-#         local_weights.append(Clients[idx].model.state_dict())
-#         clients_models.append(copy.deepcopy(Clients[idx].model))
+    sampled_clients = np.random.choice(args.n_clients, K , replace=False)
+    for idx in sampled_clients:
+        Clients[idx].load_model(global_weights)
+        Clients[idx].local_training(epoch)
+        local_weights.append(Clients[idx].model.state_dict())
+        clients_models.append(copy.deepcopy(Clients[idx].model))
 
-#     # Cập nhật global model
-#     global_weights = average_weights(local_weights)
-#     global_model.load_state_dict(global_weights)
+    # Cập nhật global model
+    global_weights = average_weights(local_weights)
+    global_model.load_state_dict(global_weights)
     
-#     # Kiểm tra accuracy
-#     acc_top1, acc_top5 = global_acc(global_model, total_loader_train)
-#     print(f'Top 1 training accuracy: {acc_top1}, Top 5 accuracy: {acc_top5} at global round {epoch}.')
+    # Kiểm tra accuracy
+    acc_top1, acc_top5 = global_acc(global_model, total_loader_train)
+    print(f'Top 1 training accuracy: {acc_top1}, Top 5 accuracy: {acc_top5} at global round {epoch}.')
 
-#     # --- ĐOẠN CODE LƯU CHECKPOINT ---
-#     checkpoint_path = f'{args.model}_{args.dataset}_acc_{acc_top1:.2f}_{epoch}.pth'
+    # --- ĐOẠN CODE LƯU CHECKPOINT ---
+    checkpoint_path = f'{args.model}_{args.dataset}_acc_{acc_top1:.2f}_{epoch}.pth'
         
-#         # Lưu state_dict của global model
-#     torch.save(global_model.state_dict(), checkpoint_path)
-#     print(f'---> Saved checkpoint: {checkpoint_path}')
+        # Lưu state_dict của global model
+    torch.save(global_model.state_dict(), checkpoint_path)
+    print(f'---> Saved checkpoint: {checkpoint_path}')
         
         
       
