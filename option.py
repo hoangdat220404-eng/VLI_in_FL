@@ -23,6 +23,8 @@ def args_parser():
     parser.add_argument('--hidden', default=512, type=int, help='dimension of the hidden embeddings')
 
     parser.add_argument('-n', '--n_clients', default=10, type=int)
+    parser.add_argument('--vli_star_gmax', default='max', choices=('max', 'mean+', 'med+'),
+                        help="VLI*: mau so G*. 'max' = ban goc; 'mean+'/'med+' = trung binh/trung vi cua cac G_j > 0 (ben voi nham lan khong deu)")
     parser.add_argument('--vli_star_diag', action='store_true',
                         help='VLI*: in chan tren oracle cua G_max va cac bien the phan vi (dung nhan that, chi de phan tich)')
     

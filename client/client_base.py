@@ -500,7 +500,16 @@ class Client(object):
                 window_targets = torch.cat(targets_epochs, dim=0).numpy()
                 num_instances = np.bincount(window_targets, minlength=self.args.n_classes)
                 existences = (num_instances > 0).astype(int).tolist()
-                prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
+                _gmode = getattr(self.args, 'vli_star_gmax', 'max')
+                if _gmode == 'max':
+                    prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
+                else:
+                    _G = b_grad_epochs.detach().cpu().numpy()
+                    _pos = _G[_G > 0.0]
+                    if _pos.size == 0:
+                        raise ValueError('VLI*: khong co thanh phan gradient duong cho mau so %s' % _gmode)
+                    _gv = float(_pos.mean()) if _gmode == 'mean+' else float(np.median(_pos))
+                    prediction = VLI_star_closed_form(b_grad_epochs, args=self.args, gmax=_gv)
                 _, irec, cAcc = self.accuracy_calculation(prediction, existences, num_instances)
                 if getattr(self.args, 'vli_star_diag', False):
                     G = b_grad_epochs.detach().cpu().numpy().copy()
