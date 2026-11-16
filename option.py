@@ -23,6 +23,8 @@ def args_parser():
     parser.add_argument('--hidden', default=512, type=int, help='dimension of the hidden embeddings')
 
     parser.add_argument('-n', '--n_clients', default=10, type=int)
+    parser.add_argument('--vli_star_diag', action='store_true',
+                        help='VLI*: in chan tren oracle cua G_max va cac bien the phan vi (dung nhan that, chi de phan tich)')
     
     parser.add_argument('--sampling_rate', default=1.0, type=float, help='sampling rate for clients')
     

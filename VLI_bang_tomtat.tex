@@ -1,0 +1,278 @@
+% ============================================================================
+%  Bang tom tat: cac phuong phap khoi phuc nhan, co che suy giam, va VLI.
+%
+%  Compile duoc bang CA HAI engine:
+%     pdflatex VLI_bang_tomtat.tex   -- hien thi dung, copy-paste chu bi loi ma
+%     xelatex  VLI_bang_tomtat.tex   -- NEN DUNG: Unicode that, copy-paste duoc
+%
+%  Ghi chu: file nay chi la ban tom tat. Phat bieu va chung minh day du nam o
+%  VLI_baocao_vi.tex. O day cac ket qua duoc goi bang TEN thay vi so thu tu,
+%  de khong lech khi bao cao duoc danh so lai.
+% ============================================================================
+\documentclass[11pt]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T5]{fontenc}
+\else
+  \usepackage{fontspec}   % mac dinh dung Latin Modern, khong can font he thong
+\fi
+\usepackage[vietnamese]{babel}
+\usepackage[landscape,margin=1.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+
+\DeclareMathOperator{\softmaxop}{softmax}
+\newcommand{\pos}[1]{\left[#1\right]_+}
+\renewcommand{\arraystretch}{1.35}
+
+\begin{document}
+\pagestyle{empty}
+
+\begin{center}
+{\large\bfseries Khôi phục nhãn từ cập nhật cục bộ: cơ chế suy giảm của các
+phương pháp và cách VLI vượt qua}
+
+\vspace{0.3em}
+\footnotesize
+Bản tóm tắt. Phát biểu và chứng minh đầy đủ ở \texttt{VLI\_baocao\_vi.tex}.
+Mọi số liệu là đánh giá trên mô hình sinh, \emph{không} phải thí nghiệm trên
+mạng đã huấn luyện.
+\end{center}
+
+\vspace{0.4em}
+
+\footnotesize
+\noindent
+\begin{tabular}{@{}l p{2.1cm} p{2.0cm} p{5.4cm} p{2.7cm} p{5.4cm} p{1.3cm}@{}}
+\toprule
+\textbf{Phương pháp} &
+\textbf{Tín hiệu} &
+\textbf{Vay từ aux} &
+\textbf{Cơ chế suy giảm} &
+\textbf{Căn cứ} &
+\textbf{Kết cục khi $\bar\epsilon_{\text{tr}}\to0$} &
+\textbf{Bất biến} \\
+\midrule
+
+iLRG &
+$\nabla W_j/\nabla b_j$ &
+không &
+Chia cho mẫu số tiêu biến: cả $a_j$ và $E_j$ đều $\to0$; hệ giải bằng giả
+nghịch đảo suy biến &
+BĐ đồng nhất thức &
+Nhiễu số học (cài đặt phải chặn số mũ thủ công) &
+--- \\
+
+LLG &
+$\sum_d \Delta W$ &
+không &
+Không có: $h_1$ theo \emph{dấu} \emph{và} impact tính từ chính tín hiệu, nên
+cả hai pha đều bất biến thang độ &
+--- &
+Vẫn hoạt động &
+Có \\
+
+LLG$^+$ &
+$\sum_d \Delta W$ &
+offset, impact &
+Chỉ mẫu dấu $h_1$ còn lại; phần còn lại đóng băng theo offset. Đòi
+$\bar\epsilon_{\text{tr}}\ll\bar\epsilon_{\text{aux}}$ &
+MĐ đóng băng LLG$^+$ (+ MĐ khoảng cách lỗi) &
+$F(h_1)$: hàm của mẫu dấu, $\le C$ bit. Mô phỏng: chỉ $4$ đầu ra trên $3000$
+nhãn; irec $0{,}200$ \emph{thấp hơn} dự đoán đều $0{,}398$ &
+Một phần \\
+
+ZLG$^+$ &
+$\sum_d \Delta W$ $(=\bar O\tilde G/n)$ &
+$\bar p$, $\bar O$ &
+$\widehat N\propto\pos{n\bar p-\tilde G}$: khi $\tilde G\to0$ chỉ còn
+$\bar p$. Cần $w_{\max}$ bị chặn &
+ĐL sụp đổ phụ trợ + HQ biên cho đầu ra &
+$n\bar p/\|\bar p\|_1\approx$ phân phối đều. Chồng lấp với phân phối thật:
+$0{,}54$ ($\alpha{=}0{,}5$); $0{,}29$ ($\alpha{=}0{,}1$) &
+Không \\
+
+RLU &
+$\Delta b$ $(=G/n)$; $\Delta W$ cho $O$ &
+$\text{shift}=\softmaxop(\mu_{\text{aux}})$ &
+Ba lỗi cộng dồn: sụp đổ phụ trợ; khoảng cách Jensen $e^{\sigma^2/2}$;
+cắt + chuẩn hóa nhân &
+ĐL sụp đổ phụ trợ + HQ biên cho đầu ra, MĐ Jensen, MĐ khuếch đại &
+$n\cdot\text{normalize}(\text{shift})$, độc lập hoàn toàn với nhãn
+\emph{(lần gọi đầu; thủ tục hậu nghiệm chưa được phủ)} &
+Không \\
+
+\midrule
+
+VLI (gốc) &
+$\Delta b$ hoặc $\sum_d\Delta W$ &
+không &
+$f_2=(w_2\|G\|_2{+}1)^{-1}$ và $f_3=w_3^{-100|d|}$ \emph{phụ thuộc độ lớn}
+của tín hiệu &
+--- &
+Xấp xỉ đúng, nhưng 5 siêu tham số phải dò lại cho mỗi cấu hình &
+Gần \\
+
+\textbf{VLI}$^\ast$ \textbf{dạng đóng} &
+$\Delta b$ &
+\textbf{không} &
+Giả thiết $Q$ đều (MĐ hoán vị: lựa chọn \emph{duy nhất} khi không có tri thức
+riêng về lớp); cần $\ge1$ lớp vắng mặt &
+ĐL dạng đóng &
+\textbf{Không đổi.} Kiểm chứng: $\bar\epsilon_{\text{tr}}$ giảm 7 bậc, kết
+quả y nguyên &
+\textbf{Có} \\
+
+VLI$^\ast$ tổng quát &
+$\Delta b$ &
+chỉ $(r,Q)$ \emph{đã chuẩn hóa} &
+$(r,Q)$ hiện là oracle, chưa ước lượng được từ cập nhật &
+ĐL khôi phục với $(r,Q)$; HQ $\kappa$ &
+\textbf{Không đổi} (trần lý thuyết) &
+Có \\
+
+\bottomrule
+\end{tabular}
+
+\vspace{1.0em}
+
+\noindent\normalsize\textbf{Vì sao chỉ VLI$^\ast$ thoát được}
+
+\vspace{0.4em}
+\footnotesize
+\noindent
+\begin{tabular}{@{}p{5.2cm} p{3.2cm} p{15.8cm}@{}}
+\toprule
+\textbf{Rào cản} & \textbf{Chặn ai} & \textbf{VLI$^\ast$ vượt bằng cách nào} \\
+\midrule
+
+\textbf{BĐ chuẩn gradient:}
+$\|G\|_1\le 2nL_{\text{tr}}$ --- toàn bộ tín hiệu co về 0 theo lỗi huấn luyện &
+Mọi phương pháp &
+Chỉ dùng \emph{tỉ số} $G_j/G_{\max}$; nhân tín hiệu với hằng số dương nào
+cũng không đổi kết quả (MĐ bất biến thang độ) \\
+
+\textbf{ĐL sụp đổ phụ trợ:}
+$\widehat\pi\to\Phi(c)$, một vector độc lập với nhãn &
+ZLG$^+$, RLU &
+Không tồn tại $c$ ngoài cửa sổ. Thang độ $\bar\epsilon_{\text{tr}}$ được đọc
+từ $G_{\max}$ --- \emph{nhiệt kế nằm ngay trong cửa sổ} \\
+
+\textbf{MĐ đóng băng LLG$^+$:}
+đầu ra chỉ còn là hàm của mẫu dấu $h_1$ &
+LLG$^+$ &
+Không có pha tham lam hay offset; một biểu thức đóng đọc \emph{toàn bộ} tín
+hiệu theo tỉ số, không chỉ dấu của nó \\
+
+\textbf{MĐ khoảng cách lỗi:}
+$\tau_{\text{err}}/\bar\epsilon_{\text{tr}}\to\infty$ (\emph{điều kiện đủ}) &
+LLG$^+$ \mbox{(ZLG$^+$/RLU} không cần) &
+Không tham chiếu độ lớn nào từ aux. Riêng $(r,Q)$ tùy chọn đều \emph{vô đơn
+vị}: $\bar\epsilon$ triệt tiêu khỏi chúng theo định nghĩa \\
+
+\textbf{MĐ Jensen:}
+khoảng cách $e^{\sigma^2/2}$, lớn nhất đúng lúc tín hiệu yếu nhất &
+RLU &
+Không lấy softmax của logit trung bình \\
+
+\textbf{MĐ khuếch đại:} cắt + chia-cho-tổng \emph{không} Lipschitz
+\emph{toàn cục}; đạo hàm theo hướng bằng $4n/(9\delta)\to\infty$ khi
+$\|\pos{x}\|_1=1{,}5\delta\to0$, nên \textbf{không có biên đều}. (Không mâu
+thuẫn với BĐ Lipschitz cục bộ, vốn cho hệ số $2n/\delta$ trên miền
+$\|\pos{x}\|_1\ge\delta$ và là thứ mà HQ biên cho đầu ra dùng.) &
+RLU, ZLG$^+$ &
+Không cần cắt ($\text{raw}\ge0$ tự động) và không cần chuẩn hóa
+($\sum\text{raw}=n$ miễn phí, do $\sum_j G_j=0$, và cũng đúng cho $\tilde G$).
+Phép chiếu simplex phòng vệ là phép \emph{cộng}, không giãn trong $L_2$ (hệ
+số $=1$) và bị chặn bởi $\sqrt C$ trong $L_1$ --- tức \emph{có} biên đều \\
+
+Mẫu số $\nabla b\to0$ &
+iLRG &
+Gradient bias không bao giờ dùng làm số chia \\
+
+Siêu tham số dò tay &
+VLI gốc &
+$\text{boost}^\star=(C-1)G_{\max}/\sum_j\pos{-G_j}$ được \emph{suy ra}, thay
+cả 5 hằng số \\
+
+\bottomrule
+\end{tabular}
+
+\vspace{1.0em}
+\noindent\normalsize\textbf{Sự đánh đổi --- luận điểm trung tâm}
+
+\vspace{0.3em}
+\footnotesize
+\noindent
+\begin{tabular}{@{}l p{5.8cm} p{5.0cm} p{8.6cm}@{}}
+\toprule
+ & \textbf{Mô hình hình học lỗi} & \textbf{Nguồn lệch thang độ} &
+ \textbf{Kết cục khi $\bar\epsilon_{\text{tr}}\to0$} \\
+\midrule
+ZLG$^+$, RLU &
+\emph{Tốt hơn} --- đo $\bar p$, $\mu_{\text{aux}}$ thật từ dữ liệu &
+\emph{Cấu trúc}: $c$ có cỡ một vector xác suất, bất kể khoảng cách tổng quát
+hóa &
+Sụp về vector độc lập nhãn (ĐL sụp đổ phụ trợ) \\
+LLG$^+$ &
+\emph{Tốt hơn} --- đo offset, impact thật từ dữ liệu &
+\emph{Khoảng cách tổng quát hóa}: cần
+$\bar\epsilon_{\text{aux}}\gg\bar\epsilon_{\text{tr}}$ &
+Còn $\le C$ bit qua mẫu dấu; thực tế irec dưới cả dự đoán đều \\
+VLI$^\ast$ &
+\emph{Thô hơn} --- giả thiết $Q$ đều, $r_j\equiv1$ &
+\emph{Không có}: bất biến thang độ &
+Sai số \emph{có biên}, không sụp: thấp nhất $0{,}53$ trong các chế độ đã đo
+(nhầm lẫn cấu trúc $s=0{,}9$ cộng mất cân bằng mạnh; HQ $\kappa$ cho biên khi
+$r$ bị gán sai) \\
+\bottomrule
+\end{tabular}
+
+\vspace{1.0em}
+\noindent\normalsize\textbf{Giới hạn cần nói kèm}
+
+\vspace{0.3em}
+\footnotesize
+\noindent
+\begin{tabular}{@{}p{5.2cm} p{19.0cm}@{}}
+\toprule
+\textbf{Giới hạn} & \textbf{Nội dung} \\
+\midrule
+Cần $\ge1$ lớp vắng mặt &
+Nếu mọi lớp đều có mặt, dạng đóng \emph{vẫn chạy} nhưng trả về
+$\widehat N_j = n(N_j-N_{\min})/(n-CN_{\min})$: nó trừ một mức sàn $N_{\min}$
+rồi phóng lại. Thiệt hại tỉ lệ với $N_{\min}/n$ --- đuôi dài thì không đáng
+kể ($0{,}975$), gần cân bằng thì mất nhiều ($0{,}84$ khi gần IID). Nguyên
+nhân: dưới giả thiết đối xứng chỉ có $C-1$ phương trình độc lập cho $C$ ẩn
+($N$ và $\bar\epsilon$); lớp vắng mặt là phương trình còn thiếu. Kẻ tấn công
+\emph{không thể tự biết} cửa sổ nào thiếu điều kiện này \\
+$\kappa$ và $Q$ xấu đi khi train tốt &
+Độ phân tán độ khó $\kappa$ nở ra, và $Q$ tập trung dần (độ tập trung
+$0{,}142\to0{,}510$ trong mô phỏng), nên Giả thiết đối xứng sai dần đúng vào
+chế độ mà VLI$^\ast$ được thiết kế cho \\
+Cái mốc là một toạ độ &
+$G_{\max}$ mang toàn bộ việc hiệu chuẩn thang độ, nên nhiễu cộng vừa phải đã
+đủ làm sai --- gợi ra hướng phòng thủ: chỉ cần che lớp nào vắng mặt \\
+Hộp trắng, FedAvg thuần &
+Các đồng nhất thức đòi gradient cross-entropy đọc trước bước optimizer;
+momentum, weight decay, số hạng proximal/FedDyn đều làm nhiễm tín hiệu \\
+\bottomrule
+\end{tabular}
+
+\vspace{1.0em}
+\noindent\normalsize
+Luận điểm \emph{không} phải ``$Q$ đều là đúng''. Luận điểm là: \textbf{một mô
+hình sai nhưng bất biến thang độ thắng một mô hình tốt hơn nhưng phụ thuộc
+thang độ}, vì sai số hình học \emph{có biên} còn lệch thang độ thì không ---
+nó đẩy ước lượng về một dự đoán không còn phụ thuộc nhãn. Đây đúng là cấu
+trúc lập luận giải thích Naive Bayes: giả thiết độc lập có điều kiện gần như
+luôn bị vi phạm, nhưng bộ phân lớp vẫn tốt vì quy tắc quyết định chỉ cần
+\emph{thứ tự}, không cần xác suất được hiệu chuẩn. Ở đây, vì
+$\text{raw}_j-\text{raw}_k = N_j-N_k$ chính xác, ước lượng chỉ phụ thuộc
+\emph{hiệu} của $\text{raw}$, nên một $Q$ sai là vô hại miễn quan hệ affine
+giữa tín hiệu và $N$ được bảo toàn.
+
+\end{document}

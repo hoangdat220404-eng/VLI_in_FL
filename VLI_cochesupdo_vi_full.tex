@@ -1,0 +1,1141 @@
+% ============================================================================
+%  BAO CAO BO SUNG (tieng Viet)
+%  Vi sao cac phuong phap dung thong ke phu tro suy giam manh hon cac phuong
+%  phap khong dung: THUOC DO NGOAI so voi THUOC DO TU THAN.
+%
+%  File NAY DOC LAP voi VLI_baocao_vi.tex (khong ghi de, khong thay the).
+%
+%  NGUYEN TAC CUA BAN NAY: khong trich mot con so mo phong nao. Chi gom
+%    (a) dai so chung minh duoc, va
+%    (b) thuoc tinh cua ham doc tu client/attacks.py, kiem bang phep thu
+%        f(lambda*Gamma) =? f(Gamma) -- khong phu thuoc gia dinh ve Q, eps, N.
+%
+%  Compile:
+%     pdflatex VLI_cochesupdo_vi.tex   (chay 3 lan)
+%     xelatex  VLI_cochesupdo_vi.tex   (chay 3 lan)
+% ============================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T5]{fontenc}
+\else
+  \usepackage{fontspec}
+\fi
+\usepackage[vietnamese]{babel}
+
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{dinhly}{Định lý}
+\newtheorem{bode}[dinhly]{Bổ đề}
+\newtheorem{menhde}[dinhly]{Mệnh đề}
+\newtheorem{hequa}[dinhly]{Hệ quả}
+\newtheorem{dinhnghia}[dinhly]{Định nghĩa}
+\theoremstyle{remark}
+\newtheorem{nhanxet}[dinhly]{Nhận xét}
+\renewcommand{\proofname}{Chứng minh}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\pos}[1]{\left[#1\right]_+}
+\newcommand{\quant}{\mathcal{Q}}
+\newcommand{\epstr}{\bar\varepsilon_{\mathrm{tr}}}
+\newcommand{\epsaux}{\bar\varepsilon_{\mathrm{aux}}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\renewcommand{\arraystretch}{1.25}
+
+\title{Thước đo ngoài và thước đo tự thân\\[0.3em]
+\large Vì sao các phương pháp khôi phục nhãn dùng thống kê phụ trợ\\
+suy giảm mạnh hơn các phương pháp không dùng}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Báo cáo này giải thích một quan sát thực nghiệm: khi mô hình toàn cục được
+huấn luyện tốt, các tấn công khôi phục nhãn dùng thống kê phụ trợ (ZLG$^+$,
+RLU, LLG$^+$) suy giảm mạnh, còn các tấn công không dùng (LLG, VLI$^*$) thì
+không. Luận điểm trung tâm: mọi tấn công loại này đều phải quy một gradient
+thành số đếm, nên đều cần một \emph{thang độ} để so sánh. Chúng khác nhau
+\emph{chỉ} ở chỗ lấy thang đó từ đâu. Nhóm dùng phụ trợ so tín hiệu với một
+thước \emph{cố định} không co theo huấn luyện; nhóm không dùng phụ trợ dựng
+thước \emph{từ chính tín hiệu}. Vì độ lớn của gradient lớp cuối \emph{chính
+là} sai số huấn luyện (Bổ đề~\ref{bd:dolon}), nhóm thứ nhất thấy tỉ số của
+mình co lại, còn nhóm thứ hai không thấy gì thay đổi. Ta chứng minh một
+\emph{chặn bẫy} phi tiệm cận (Mệnh đề~\ref{md:bay}): đầu ra của nhóm thứ nhất
+bị nhốt trong một quả cầu bán kính $A+C$ quanh một tâm không phụ thuộc nhãn,
+đúng ở \emph{mọi} mức sai số --- nên suy giảm là liên tục và bắt đầu sớm, chứ
+không phải một ngưỡng. Ta hình thức hóa
+điều này bằng \emph{bất biến thang độ}, chứng minh LLG và VLI$^*$ có tính đó
+còn ba phương pháp kia không, và kiểm lại bằng một phép thử trên mã nguồn
+thật. Cuối cùng ta chứng minh thông tin nhãn nằm trong \emph{hướng} của tín
+hiệu chứ không trong độ lớn, nên độ lớn là \emph{tham số nhiễu} --- và việc
+so nó với một hằng số ngoài là một lỗi thiết kế, không phải một giới hạn
+thông tin.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{Phạm vi và quy tắc trích dẫn}
+
+\subsection{Những gì bản này cố ý không có}
+
+Bản trước của báo cáo này chứa nhiều bảng số sinh từ một mô phỏng tự viết
+($Q$ đều ngoài đường chéo, $\bar\varepsilon$ là một vô hướng tự do, $N$ tự
+chọn). Những bảng đó không phải bằng chứng: chúng chỉ kiểm tính nhất quán của
+đại số với \emph{giả định của chính mô phỏng}. Chúng đã bị loại bỏ hoàn toàn.
+
+Bản này chỉ gồm hai loại khẳng định:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textsc{[cm]} & Chứng minh đầy đủ từ định nghĩa, hoặc đọc trực tiếp từ mã nguồn. \\
+\textsc{[kt]} & Kiểm bằng \emph{phép thử thuộc tính hàm} trên mã nguồn thật: \\
+              & cho cùng đầu vào nhân với $\lambda$ khác nhau, so đầu ra. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Phép thử \textsc{[kt]} khác về bản chất với mô phỏng: nó không cần biết
+$\Gamma$ sinh ra thế nào, vì nó so $f(\lambda\Gamma)$ với $f(\Gamma)$ trên
+cùng một $\Gamma$. Kết quả là một sự thật về \emph{hàm}, đúng với mọi đầu vào.
+
+Mọi đại lượng chưa đo trên pipeline thật được ghi rõ là \textbf{chưa đo}, và
+không có con số nào thay cho nó.
+
+\subsection{Câu hỏi}
+
+\begin{quote}
+Vì sao ZLG$^+$, RLU, LLG$^+$ suy giảm mạnh khi mô hình được huấn luyện tốt,
+trong khi LLG và VLI$^*$ thì không?
+\end{quote}
+
+% ===========================================================================
+\section{Ký hiệu}
+\label{sec:kihieu}
+
+Máy chủ trung thực-nhưng-tò mò quan sát cập nhật của một client sau cửa sổ
+gồm $m$ bước SGD cục bộ, mỗi bước trên một lô $B$ mẫu; tổng số nhãn
+$n=mB$. Cần khôi phục $N=(N_1,\dots,N_C)$ với $\sum_j N_j=n$.
+
+\begin{center}
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{Ký hiệu} & \textbf{Nghĩa} \\
+\midrule
+$C$, $B$, $m$, $n=mB$ & số lớp; cỡ lô; số bước cục bộ; tổng số nhãn \\
+$y_i$, $e_{y_i}$ & nhãn thật của mẫu $i$; vectơ one-hot của nó \\
+$p_i$ & phân phối softmax mô hình gán cho mẫu $i$ \\
+$\varepsilon_i = 1-p_{i,y_i}$ & \emph{sai số} của mẫu $i$; $\varepsilon_i\in[0,1)$ \\
+$N_j$, $\bar\varepsilon_j$ & số mẫu lớp $j$; sai số trung bình của lớp $j$ \\
+$a_j = N_j\bar\varepsilon_j$ & \emph{khối lượng lỗi} của lớp $j$ \\
+$\epstr = n^{-1}\sum_i\varepsilon_i$ & sai số huấn luyện trung bình trên cửa sổ \\
+$\epsaux$ & sai số trung bình trên tập phụ trợ của kẻ tấn công \\
+$\bar p_j = 1-\bar\varepsilon_{\mathrm{aux},j}$ & độ tự tin trên \emph{lớp đúng} $j$, đo trên phụ trợ \\
+$s_i = \sum_d e_{i,d}$, $\bar O$ & tổng đặc trưng của mẫu $i$ (sau ReLU, $\ge 0$); trung bình của $s_i$ trên phụ trợ \\
+$\Gamma$ & tín hiệu gradient mà một phương pháp đọc được \\
+$\quant$ & phép làm tròn về số nguyên \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Hai dạng tín hiệu xuất hiện trong mã nguồn:
+\begin{align}
+G &= \sum_{i=1}^{n}\bigl(p_i-e_{y_i}\bigr) && \text{(gradient bias; RLU, LLG, VLI$^*$)},
+\label{eq:G}\\
+\tilde G_j &= \sum_{i=1}^{n} w_i\bigl(p_{i,j}-\delta_{j,y_i}\bigr),
+ \quad w_i=\frac{s_i}{\bar O} && \text{(gradient trọng số; ZLG$^+$, LLG$^+$)}.
+\label{eq:Gtilde}
+\end{align}
+
+Ma trận nhầm lẫn chuẩn hóa, với $Q_{jj}:=0$:
+\begin{equation}
+Q_{jk} \;=\; \frac{1}{a_j}\sum_{i:\,y_i=j} p_{i,k}\qquad (k\neq j).
+\label{eq:Q}
+\end{equation}
+Phép chia cho $a_j$ khử $\bar\varepsilon$ khỏi $Q$: tử và mẫu cùng thứ nguyên
+$[\varepsilon]^1$. Nên $Q$ mô tả \emph{hình dạng} của lỗi, không mô tả
+\emph{độ lớn}. Sự phân biệt này là bản lề của toàn bộ báo cáo.
+
+% ===========================================================================
+\section{Hai sự thật về tín hiệu}
+\label{sec:haisuthat}
+
+\subsection{Độ lớn của tín hiệu \emph{chính là} sai số}
+
+\begin{bode}[Ma trận $Q$ ngẫu nhiên theo hàng]
+\label{bd:Qstoch}
+\textsc{[cm]}\; Với mọi $j$ sao cho $a_j>0$: $\sum_k Q_{jk}=1$.
+\end{bode}
+
+\begin{proof}
+$\sum_{k\ne j}\sum_{i:y_i=j}p_{i,k}=\sum_{i:y_i=j}(1-p_{i,j})
+ =\sum_{i:y_i=j}\varepsilon_i=a_j$; chia hai vế cho $a_j$.
+\end{proof}
+
+\begin{bode}[Đồng nhất thức tín hiệu]
+\label{bd:tinhieu}
+\textsc{[cm]}\; Với $a=(a_1,\dots,a_C)$,
+\begin{equation}
+G \;=\; -\bigl(I-Q^{\!\top}\bigr)\,a .
+\label{eq:Gid}
+\end{equation}
+\end{bode}
+
+\begin{proof}
+$G_j=\sum_i p_{i,j}-N_j$. Tách theo nhãn thật:
+$\sum_{i:y_i=j}p_{i,j}=N_j-a_j$, và $\sum_{i:y_i=k}p_{i,j}=a_kQ_{kj}$ với
+$k\ne j$. Dùng $Q_{jj}=0$ để gộp $k=j$ vào tổng mà không đổi giá trị:
+$G_j=(N_j-a_j)+\sum_k a_kQ_{kj}-N_j=-\bigl[(I-Q^{\!\top})a\bigr]_j$.
+\end{proof}
+
+\begin{bode}[Độ lớn tín hiệu bị chặn bởi sai số huấn luyện]
+\label{bd:dolon}
+\textsc{[cm]}\;
+\begin{equation}
+\|G\|_1 \;\le\; 2n\,\epstr,
+\qquad
+\|\tilde G\|_1 \;\le\; 2n\,w_{\max}\,\epstr .
+\label{eq:dolon}
+\end{equation}
+\end{bode}
+
+\begin{proof}
+Từ \eqref{eq:Gid} và Bổ đề \ref{bd:Qstoch}:
+$\|G\|_1\le\|a\|_1+\|Q^{\!\top}a\|_1=2\|a\|_1$, và
+$\|a\|_1=\sum_j N_j\bar\varepsilon_j=\sum_i\varepsilon_i=n\epstr$. Với
+$\tilde G$: mỗi mẫu góp $w_i\|p_i-e_{y_i}\|_1=2w_i\varepsilon_i
+\le 2w_{\max}\varepsilon_i$.
+\end{proof}
+
+\begin{nhanxet}[Đây là chỗ không có đường thoát]
+\label{nx:khongthoat}
+Bổ đề \ref{bd:dolon} không phải một hiện tượng phụ của kiến trúc hay dữ liệu.
+Gradient của lớp tuyến tính cuối dưới entropy chéo là \emph{tổng các phần dư}
+$p_i-e_{y_i}$, và chuẩn $L_1$ của một phần dư bằng đúng $2\varepsilon_i$. Nên
+độ lớn của tín hiệu \emph{chính là} sai số, không phải chỉ tương quan với nó.
+Huấn luyện mô hình tốt lên \emph{bắt buộc} làm $\|\Gamma\|_1$ co lại. Mọi
+tấn công đều phải sống với điều này; câu hỏi duy nhất là nó có \emph{quan
+tâm} hay không.
+
+Giả thiết duy nhất ở đây là $w_{\max}=\max_i s_i/\bar O$ bị chặn, và nó chỉ
+cần cho $\tilde G$ (tức ZLG$^+$, LLG$^+$). Giá trị $w_{\max}$ thực tế:
+\textbf{chưa đo}.
+\end{nhanxet}
+
+\subsection{Tín hiệu có tổng bằng không}
+
+\begin{bode}[Tổng triệt tiêu]
+\label{bd:tongkhong}
+\textsc{[cm]}\; $\sum_{j=1}^{C}\Gamma_j=0$ với $\Gamma=G$ \emph{và} với
+$\Gamma=\tilde G$, bất kể trọng số $w_i$.
+\end{bode}
+
+\begin{proof}
+Với mỗi mẫu $i$: $\sum_j (p_{i,j}-\delta_{j,y_i})=1-1=0$, vì $p_i$ là phân
+phối xác suất và $e_{y_i}$ là one-hot. Mọi tổ hợp tuyến tính theo $i$ giữ
+tính chất này.
+\end{proof}
+
+\begin{hequa}[Ánh xạ nhãn $\to$ tín hiệu suy biến]
+\label{hq:hatnhan}
+\textsc{[cm]}\; $\one^{\!\top}(I-Q^{\!\top})=0$, nên $I-Q^{\!\top}$ suy biến
+và $a\mapsto G$ có hạng $\le C-1$.
+\end{hequa}
+
+Hệ quả này sẽ cần đến ở Mục \ref{sec:thongtin}: tín hiệu xác định khối lượng
+lỗi chỉ \emph{đến một bậc tự do}, và bậc đó được ghim lại bằng một lớp vắng
+mặt.
+
+% ===========================================================================
+\section{Vấn đề thang độ}
+\label{sec:thangdo}
+
+\subsection{Mọi tấn công đều cần một thước}
+
+Đầu vào là $\Gamma\in\R^C$ (số thực); đầu ra phải là $\hat N\in\mathbb{Z}^C_{\ge0}$
+với $\sum_j\hat N_j=n$. Để biến cái trước thành cái sau, thuật toán buộc phải
+trả lời câu hỏi \emph{``một đơn vị nhãn tương ứng với bao nhiêu gradient?''}
+Đó là một \textbf{thang độ}, và nó phải đến từ đâu đó.
+
+Toàn bộ sự khác biệt giữa năm phương pháp nằm ở câu trả lời đó.
+
+\subsection{Bất biến thang độ}
+
+\begin{dinhnghia}[Bất biến thang độ]
+\label{dn:batbien}
+Một tấn công $\mathcal{A}:\R^C\to\mathbb{Z}^C$ gọi là \emph{bất biến thang độ}
+nếu
+\begin{equation}
+\mathcal{A}(\lambda\Gamma)\;=\;\mathcal{A}(\Gamma)
+\qquad\text{với mọi } \lambda>0 \text{ và mọi } \Gamma .
+\label{eq:batbien}
+\end{equation}
+\end{dinhnghia}
+
+\begin{nhanxet}[Vì sao đúng là khái niệm cần dùng]
+\label{nx:visaobatbien}
+Theo Bổ đề \ref{bd:dolon}, tác động \emph{trội} của huấn luyện lên $\Gamma$ là
+một phép co nhân tính: $\|\Gamma\|_1$ tỉ lệ với $\epstr$. Một tấn công bất
+biến thang độ, \emph{theo định nghĩa}, miễn nhiễm với phép co đó. Một tấn
+công không bất biến thì không.
+
+Đây là lý do \eqref{eq:batbien} là tiêu chí đúng, chứ không phải một tính
+chất ngẫu nhiên dễ thương. Ta sẽ thấy nó chia năm phương pháp thành hai nhóm
+đúng khớp với quan sát thực nghiệm.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Nhóm dùng thống kê phụ trợ}
+\label{sec:aux}
+
+\subsection{Dạng chuẩn, đối chiếu mã nguồn}
+
+\begin{menhde}[Dạng chuẩn]
+\label{md:dangchuan}
+\textsc{[cm]}\; ZLG$^+$ và bước đầu của RLU đều tính
+\begin{equation}
+\hat N \;=\; \quant\Bigl(R\bigl(c-\beta\Gamma\bigr)\Bigr),
+\qquad R(x)=\frac{n\,\pos{x}}{\|\pos{x}\|_1},
+\label{eq:dangchuan}
+\end{equation}
+với $c\in\R^C_{\ge0}$ \emph{không phụ thuộc nhãn của cửa sổ bị tấn công}.
+\end{menhde}
+
+\begin{proof}[Chứng minh (đọc mã nguồn)]
+\emph{ZLG$^+$} (\code{client/attacks.py}, \code{ZLGp\_attack}). Mã tính
+\[
+n_j \;=\; mB\Bigl(\bar p_j-\frac{\mathrm{grad}_j}{\bar O}\Bigr),
+\qquad
+\mathrm{grad}_j=\sum_d\Delta W_{jd}=\frac{\bar O\,\tilde G_j}{n},
+\]
+nên $n_j=n\bar p_j-\tilde G_j$; rồi cắt âm, chuẩn hóa về tổng $n$, làm tròn.
+Vậy $c=n\bar p$, $\beta=1$, $\Gamma=\tilde G$.
+
+\emph{RLU} (\code{client\_utils.py}, \code{estimated\_entropy\_from\_grad}).
+Mã đọc nguyên văn là
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\code{bias = -np.array(bias)}            & $-G/n$ \\
+\code{bias[i] = bias[i] + shift[i]}      & $x=c-G/n$ \\
+\code{if bias[i] < 0: bias[i] = 0}       & $\pos{x}$ \\
+\code{s = np.sum(abs(bias))}             & $\|\pos{x}\|_1$ \\
+\code{solution[i] = round(bias[i]/s * B)}& $\quant\bigl(n\pos{x}/\|\pos{x}\|_1\bigr)$ \\
+\end{tabular}
+\end{center}
+với \code{shift = softmax(new\_mu) * rho\_mean}. Vậy
+$c=\bar\rho\cdot\mathrm{softmax}(\bar\mu)$, $\beta=1/n$, $\Gamma=G$.
+\end{proof}
+
+\subsection{Thước bị ghim ở $\Theta(1)$}
+
+\begin{menhde}[Chuẩn của thước không co theo huấn luyện]
+\label{md:ghim}
+\textsc{[cm]}\;
+\begin{align}
+\text{ZLG}^+:&\quad \|c\|_1 \;=\; n\sum_j\bar p_j
+  \;=\; nC\,(1-\epsaux) \;\xrightarrow[\ \epsaux\to0\ ]{}\; nC ,
+\label{eq:cZLG}\\
+\text{RLU}:&\quad \|c\|_1 \;=\; \bar\rho\sum_j\mathrm{softmax}(\bar\mu)_j
+  \;=\; \bar\rho\cdot 1 \;=\; \bar\rho .
+\label{eq:cRLU}
+\end{align}
+\end{menhde}
+
+\begin{proof}
+\eqref{eq:cZLG}: $\bar p_j=1-\bar\varepsilon_{\mathrm{aux},j}$ theo định nghĩa
+trong mã (\code{pj[k] += mean\_probs[k]} tích lũy xác suất trên \emph{chính
+lớp} $k$ của mẫu phụ trợ thuộc lớp $k$). \eqref{eq:cRLU}: vectơ softmax có
+tổng bằng $1$ theo định nghĩa.
+\end{proof}
+
+\begin{nhanxet}[Đây là trả lời cho một phản biện quan trọng]
+\label{nx:phanbien}
+Phản biện tự nhiên là: \emph{tập phụ trợ cũng được chấm bằng cùng mô hình, nên
+$\epsaux$ cũng giảm --- sao thống kê phụ trợ lại không co?}
+
+Mệnh đề \ref{md:ghim} trả lời chính xác. Tiêu chí không phải ``có dùng phụ
+trợ hay không'' mà là \emph{đại lượng phụ trợ đó được neo ở đâu}:
+
+\begin{itemize}
+\item ZLG$^+$ dùng $\bar p_j=1-\bar\varepsilon_{\mathrm{aux},j}$. Đây là
+  \emph{một trừ} lỗi, nên khi $\epsaux$ giảm thì $\bar p_j$ \textbf{tăng về
+  $1$}. Thước không co --- nó phình ra tới trần $nC$.
+\item RLU dùng $\bar\rho\cdot\mathrm{softmax}(\bar\mu)$. Phụ trợ quyết định
+  \emph{hướng} của $c$, nhưng softmax cộng lại bằng $1$ \emph{theo định
+  nghĩa}, nên \emph{độ lớn} $\|c\|_1=\bar\rho$ do siêu tham số $(\gamma,m)$
+  định đoạt, hoàn toàn không phụ thuộc mô hình.
+\item LLG$^+$ thì \emph{khác}: \code{new\_offset} và \code{new\_impact} đến từ
+  \code{estimate\_static\_LLG}, và \code{offset[j] += gradients\_for\_prediction[j]}
+  --- offset \emph{chính là} gradient tích lũy trên dữ liệu phụ trợ, nên nó
+  $\propto\epsaux$ và \textbf{có co}. Xem Mục \ref{sec:llgp}.
+\end{itemize}
+
+Nói gọn: ZLG$^+$ và RLU dựng thước từ \emph{xác suất}, mà xác suất bị chuẩn
+hóa về tổng $1$ bất kể mô hình giỏi hay dở. Chính phép chuẩn hóa đó ghim
+thước lại.
+\end{nhanxet}
+
+\subsection{Hệ quả: không bất biến, và sụp về đâu}
+
+\begin{menhde}[Nhóm phụ trợ không bất biến thang độ]
+\label{md:khongbatbien}
+\textsc{[cm]}\; Với $c\ne 0$, ánh xạ $\Gamma\mapsto\quant(R(c-\beta\Gamma))$
+\emph{không} thỏa \eqref{eq:batbien}. Hơn nữa
+\begin{equation}
+\lim_{\lambda\to0^+}\ \quant\Bigl(R\bigl(c-\beta\lambda\Gamma\bigr)\Bigr)
+\;=\; \quant\bigl(R(c)\bigr),
+\label{eq:supve}
+\end{equation}
+một vectơ \emph{không phụ thuộc chút nào} vào $\Gamma$, tức vào nhãn.
+\end{menhde}
+
+\begin{proof}
+$c-\beta\lambda\Gamma\to c$ khi $\lambda\to0^+$; $R$ liên tục tại $c$ khi
+$\|\pos{c}\|_1>0$, và $\quant$ liên tục trừ trên tập các điểm nửa nguyên.
+\end{proof}
+
+Kết hợp với Bổ đề \ref{bd:dolon} ($\|\Gamma\|_1=\Theta(\epstr)$) và Mệnh đề
+\ref{md:ghim} ($\|c\|_1$ bị ghim), ta có \textbf{toàn bộ định lý sụp đổ gói
+trong một dòng}: huấn luyện đóng vai $\lambda\to0$, và đầu ra tiến về
+$\quant(R(c))$.
+
+\begin{nhanxet}[Đây mới chỉ là trường hợp giới hạn]
+\label{nx:chigioihan}
+Phát biểu \eqref{eq:supve} là tiệm cận, nên tự nó \emph{không} giải thích
+được vì sao suy giảm đã thấy rõ khi mô hình còn kém. Mục \ref{ssec:bay} thay
+nó bằng Mệnh đề \ref{md:bay}, một chặn đúng ở mọi mức sai số; \eqref{eq:supve}
+là trường hợp $A\to0$ của chặn đó.
+\end{nhanxet}
+
+Vectơ giới hạn đó là gì, thì phụ thuộc phụ trợ: với ZLG$^+$ là
+$n\bar p/\sum_j\bar p_j$, với RLU là $n\cdot\mathrm{softmax}(\bar\mu)$. Cả hai
+đều là \textbf{tiên nghiệm lớp của tập phụ trợ của kẻ tấn công}. Nói cách
+khác, khi mô hình được huấn luyện tốt, các phương pháp này không còn đoán
+nhãn của client --- chúng đoán phân bố lớp của chính dữ liệu phụ trợ.
+
+\subsection{Đại lượng điều khiển}
+
+\begin{dinhnghia}[Tỉ số tín hiệu trên thước]
+\label{dn:A}
+\begin{equation}
+A \;:=\; \frac{n\,\beta\,\|\Gamma\|_1}{\|c\|_1}\;.
+\label{eq:A}
+\end{equation}
+\end{dinhnghia}
+
+\begin{hequa}
+\label{hq:Aeps}
+\textsc{[cm]}\; $A=\Theta(\epstr)$, vì tử số là $\Theta(n\epstr)$ (Bổ đề
+\ref{bd:dolon}) còn mẫu số bị ghim (Mệnh đề \ref{md:ghim}). Với ZLG$^+$, mẫu
+số còn \emph{tăng} khi $\epsaux$ giảm, nên $A$ bị bóp từ cả hai phía.
+\end{hequa}
+
+\begin{nhanxet}[$\bar O$ không triệt tiêu]
+\label{nx:Obar}
+Trong chứng minh Mệnh đề \ref{md:dangchuan}, $\bar O$ biến mất ở bước cuối.
+Đó là \emph{kế toán ký hiệu}: định nghĩa \eqref{eq:Gtilde} của $\tilde G$ đã
+chứa $\bar O$ ở mẫu số của $w_i$. Viết theo đúng đại lượng máy chủ
+\emph{quan sát được} thì $\bar O$ hiện ra ở $\beta$:
+\[
+n_j=n\bar p_j-\frac{n}{\bar O}\mathrm{grad}_j
+\qquad\Longrightarrow\qquad
+\beta=\frac{n}{\bar O},\quad \Gamma=\mathrm{grad},
+\quad\text{nên}\quad A\propto\frac{1}{\bar O}.
+\]
+Vậy $\bar O$ là một thành phần nữa của thước: ước lượng $\bar O$ càng lớn thì
+tín hiệu càng bị nén. Hành vi của $\bar O$ khi huấn luyện (tăng? giảm? đứng
+yên?) --- \textbf{chưa đo}, và không suy ra được bằng đại số.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Vì sao tỉ số nhỏ lại giết tín hiệu}
+\label{sec:affine}
+
+Mục này làm rõ rằng ở chế độ thông thường, ánh xạ \eqref{eq:dangchuan} là
+\emph{affine chính xác}, nên không có gì ẩn: đầu ra là một hằng số cộng một
+nhiễu loạn tỉ lệ với $\Gamma$.
+
+\begin{bode}[Phân rã phần dương]
+\label{bd:phanra}
+\textsc{[cm]}\; Với mọi $x\in\R^C$:
+$\ \|\pos{x}\|_1=\sum_j x_j+\sum_{j:x_j<0}|x_j|$.
+\end{bode}
+
+\begin{proof}
+$[t]_+=t+[-t]_+$ với mọi $t\in\R$; lấy tổng theo $j$.
+\end{proof}
+
+\begin{bode}[Không bị kẹp]
+\label{bd:khongkep}
+\textsc{[cm]}\; Nếu $n\beta\epstr<\min_j c_j$ thì $x=c-\beta\Gamma$ có mọi
+tọa độ dương.
+\end{bode}
+
+\begin{proof}
+Theo Bổ đề \ref{bd:tinhieu}, $\Gamma_j=-a_j+\sum_k Q_{kj}a_k
+\le\sum_k a_k=n\epstr$ (dùng $Q_{kj}\le1$). Vậy
+$x_j\ge c_j-\beta n\epstr>0$.
+\end{proof}
+
+Hai kết quả sau \emph{chỉ} phục vụ dạng affine chính xác và đạo hàm ở Mục
+\ref{sec:thongtin}; kết luận chính (Mệnh đề \ref{md:bay}) không cần đến chúng
+--- xem Nhận xét \ref{nx:vaitroH2}.
+
+\begin{hequa}[Ngưỡng cụ thể]
+\label{hq:nguong}
+\textsc{[cm]}\;
+\begin{itemize}
+\item \textbf{ZLG$^+$}: $c=n\bar p$, $\beta=1$, nên điều kiện là
+  $\epstr<\min_j\bar p_j$, tức
+  \[
+  \boxed{\;\epstr+\max_j\bar\varepsilon_{\mathrm{aux},j}<1\;}
+  \]
+  Nó hỏng chỉ khi mô hình gần như chưa huấn luyện (cả hai sai số đều gần
+  $1-1/C$); thỏa rộng rãi với mọi mô hình đã huấn luyện --- tức đúng trong
+  vùng cần giải thích.
+\item \textbf{RLU}: $\beta=1/n$ và $\min_j c_j=\bar\rho\min_j\mathrm{softmax}(\bar\mu)_j$,
+  nên điều kiện là $\epstr<\bar\rho\min_j\mathrm{softmax}(\bar\mu)_j$. Nếu
+  $\bar\mu$ lệch mạnh thì ngưỡng này có thể chặt; giá trị thực tế của
+  $\min_j\mathrm{softmax}(\bar\mu)_j$ --- \textbf{chưa đo}.
+\end{itemize}
+\end{hequa}
+
+\begin{menhde}[Đồng nhất thức affine]
+\label{md:affine}
+\textsc{[cm]}\; Giả sử \textbf{(H1)} $c\ge0$ và \textbf{(H2)} $x=c-\beta\Gamma$
+không có tọa độ âm. Khi đó
+\begin{equation}
+R\bigl(c-\beta\Gamma\bigr)
+\;=\;\underbrace{\frac{n}{\|c\|_1}\,c}_{\text{không phụ thuộc nhãn}}
+\;-\;\underbrace{\frac{n\beta}{\|c\|_1}\,\Gamma}_{\text{toàn bộ tín hiệu}}
+\label{eq:affine}
+\end{equation}
+\emph{chính xác}, không phải xấp xỉ.
+\end{menhde}
+
+\begin{proof}
+Theo (H2), $\pos{x}=x$, nên Bổ đề \ref{bd:phanra} cho
+$\|\pos{x}\|_1=\sum_j x_j$. Theo Bổ đề \ref{bd:tongkhong},
+$\sum_j x_j=\sum_j c_j$. Theo (H1), $\sum_j c_j=\|c\|_1$. Vậy mẫu số của $R$
+là hằng số $\|c\|_1$, và $R(x)=nx/\|c\|_1$.
+\end{proof}
+
+\begin{nhanxet}[Hai giả thiết làm hai việc khác nhau]
+\label{nx:haigiathiet}
+Đây là chỗ dễ sai nhất. $\sum_j\Gamma_j=0$ \textbf{không} kéo theo
+$\|\pos{c-\beta\Gamma}\|_1=\|c\|_1$: nó chỉ cho tổng \emph{có dấu}
+$\sum_j x_j=\|c\|_1$. Cần thêm (H2) để $\|\pos{x}\|_1$ bằng tổng có dấu đó.
+Phân công rõ ràng:
+\begin{itemize}
+\item \textbf{(H2) không kẹp} làm bước $\|\pos{x}\|_1=\sum_j x_j$ --- thuần
+  hình học của $\pos{\cdot}$, không liên quan gradient.
+\item \textbf{Bổ đề \ref{bd:tongkhong}} làm bước $\sum_j x_j=\sum_j c_j$ ---
+  đây là nơi nhãn và $\epstr$ rời khỏi mẫu số.
+\end{itemize}
+Không cái nào thay được cái kia. Khi (H2) hỏng, công thức vẫn đóng nhưng
+mẫu số lớn hơn: $\|c\|_1+\sum_{j:x_j<0}|x_j|$ theo Bổ đề \ref{bd:phanra}.
+\end{nhanxet}
+
+\subsection{Chặn bẫy: phát biểu phi tiệm cận}
+\label{ssec:bay}
+
+Mệnh đề \ref{md:khongbatbien} là một phát biểu \emph{giới hạn}
+($\lambda\to0^+$). Mục này thay nó bằng một chặn đúng ở \emph{mọi} mức sai
+số, không cần ngưỡng --- đây mới là dạng khớp với quan sát thực nghiệm rằng
+suy giảm đã xảy ra khi $\epstr$ còn cao.
+
+\begin{menhde}[Đầu ra bị nhốt quanh một tâm không phụ thuộc nhãn]
+\label{md:bay}
+\textsc{[cm]}\; Chỉ cần \textbf{(H1)} $c\ge0$, $c\ne0$ --- \textbf{không} cần
+\textbf{(H2)}. Với $A$ như ở Định nghĩa \ref{dn:A}:
+\begin{equation}
+\bigl\|R(c-\beta\Gamma)-R(c)\bigr\|_1 \;\le\; A ,
+\label{eq:dichchuyen}
+\end{equation}
+và \emph{đẳng thức xảy ra khi và chỉ khi} \textbf{(H2)} đúng. Do đó, sau khi
+làm tròn,
+\begin{equation}
+\bigl\|\,\hat N-\quant\bigl(R(c)\bigr)\,\bigr\|_1 \;\le\; A+C ,
+\label{eq:bay}
+\end{equation}
+trong đó tâm $\quant(R(c))$ \textbf{không phụ thuộc nhãn} của cửa sổ bị tấn
+công.
+\end{menhde}
+
+\begin{proof}
+Đặt $g=\beta\Gamma$, $L=\|c\|_1$ và $\varphi(t)=R(c-tg)$ với $t\in[0,1]$. Ký
+hiệu $S(t)=\{j:c_j-tg_j>0\}$, $g_S$ là $g$ thu hẹp về $S$, và
+$D(t)=\|\pos{c-tg}\|_1=\sum_{j\in S(t)}(c_j-tg_j)$.
+
+\emph{Bước 1 ($D\ge L$).} Theo Bổ đề \ref{bd:tongkhong},
+$\sum_j(c_j-tg_j)=\sum_j c_j=L$ (dùng \textbf{(H1)}). Theo Bổ đề
+\ref{bd:phanra}, $D(t)=L+\sum_{j\notin S(t)}|c_j-tg_j|\ge L>0$. Nói riêng
+$\varphi$ xác định trên cả đoạn, không cần \textbf{(H2)}.
+
+\emph{Bước 2 (dấu ngoài $S$).} Nếu $j\notin S(t)$ thì $c_j-tg_j\le0$, mà
+$c_j\ge0$, nên $tg_j\ge c_j\ge0$: \emph{mọi tọa độ bị kẹp đều có $g_j\ge0$.}
+
+\emph{Bước 3 (đạo hàm từng khúc).} Mỗi $c_j-tg_j$ affine theo $t$ nên đổi dấu
+nhiều nhất một lần; $S(t)$ chỉ thay đổi tại hữu hạn điểm, và $\varphi$ liên
+tục, Lipschitz từng khúc. Trên một khúc, đặt $\sigma=\sum_{j\in S}g_j$ thì
+$D'=-\sigma$ và
+\[
+\varphi' \;=\; -\frac{n}{D}\,g_S+\frac{\sigma}{D}\,\varphi,
+\qquad\text{nên}\qquad
+\|\varphi'\|_1\;\le\;\frac{n}{D}\Bigl(\|g_S\|_1+|\sigma|\Bigr),
+\]
+dùng $\|\varphi\|_1=n$ (ảnh của $R$ luôn nằm trên đơn hình khối lượng $n$).
+
+\emph{Bước 4 (chỗ then chốt).} Theo Bổ đề \ref{bd:tongkhong},
+$\sigma=-\sum_{j\notin S}g_j$; theo Bước 2 mọi số hạng đó không âm, nên
+$|\sigma|=\|g_{S^c}\|_1$ --- \emph{bằng}, không phải chặn. Vậy
+$\|g_S\|_1+|\sigma|=\|g_S\|_1+\|g_{S^c}\|_1=\|g\|_1$, và cùng Bước 1:
+\[
+\|\varphi'(t)\|_1\;\le\;\frac{n\|g\|_1}{D(t)}\;\le\;\frac{n\beta\|\Gamma\|_1}{L}\;=\;A .
+\]
+Lấy tích phân trên $[0,1]$ được \eqref{eq:dichchuyen}. Đẳng thức buộc
+$D(t)\equiv L$, tức không tọa độ nào bị kẹp, tức \textbf{(H2)}.
+
+\emph{Phần làm tròn.} $\quant(u)=u+r(u)$ với $\|r(u)\|_\infty\le\tfrac12$, nên
+$\|\quant(u)-\quant(v)\|_1\le\|u-v\|_1+C$.
+\end{proof}
+
+\begin{nhanxet}[(H2) dùng để làm gì, và không dùng để làm gì]
+\label{nx:vaitroH2}
+Đây là chỗ dễ hiểu nhầm. Giả thiết không-kẹp \textbf{(H2)} \emph{chỉ} cần cho:
+\begin{itemize}
+\item \textbf{dạng affine chính xác} \eqref{eq:affine} --- khi có tọa độ bị
+  kẹp, mẫu số thành $\|c\|_1+\sum_{j:x_j<0}|x_j|$ (Bổ đề \ref{bd:phanra}),
+  phụ thuộc $\Gamma$, nên ánh xạ chỉ còn affine \emph{từng khúc};
+\item \textbf{đạo hàm} \eqref{eq:DR} ở Mục \ref{sec:thongtin}, vốn cần một
+  khúc duy nhất quanh $c$.
+\end{itemize}
+Nó \textbf{không} cần cho kết luận --- chặn bẫy \eqref{eq:bay} đúng vô điều
+kiện. Hệ quả thực tế: luận điểm của Mục này \emph{không} treo vào Hệ quả
+\ref{hq:nguong}, nên việc $\min_j\mathrm{softmax}(\bar\mu)_j$ của RLU chưa đo
+không còn là lỗ hổng.
+
+Thêm một điểm dễ hiểu ngược: kẹp \emph{không} phải chế độ hỏng. Tọa độ
+$x_j<0$ nghĩa là $\beta\Gamma_j>c_j\ge0$, tức lớp $j$ có gradient dương lớn
+--- dấu hiệu của lớp \emph{vắng mặt}; cắt nó về $0$ cho đúng $\hat N_j=0$.
+Theo Bước 1, kẹp chỉ làm $D$ tăng, tức \emph{nén} tín hiệu thêm, nên nó chỉ
+thu nhỏ quả cầu bẫy chứ không nới.
+\end{nhanxet}
+
+\begin{hequa}[Chặn dưới cho sai số khôi phục]
+\label{hq:chanduoi}
+\textsc{[cm]}\;
+\[
+\|\hat N-N\|_1\;\ge\;
+\underbrace{\bigl\|N-\quant(R(c))\bigr\|_1}_{\text{nhãn thật cách tiên nghiệm phụ trợ bao xa}}
+\;-\;(A+C).
+\]
+Tức là: \textbf{tấn công không thể tốt hơn ``đoán tiên nghiệm lớp của tập phụ
+trợ'' quá $A+C$} --- đúng với \emph{mọi} $\epstr$, không cần ngưỡng nào.
+\end{hequa}
+
+\begin{proof}
+Bất đẳng thức tam giác đảo áp vào \eqref{eq:bay}.
+\end{proof}
+
+\begin{nhanxet}[Suy giảm liên tục và cắn sớm, không phải một ngưỡng]
+\label{nx:lientuc}
+\eqref{eq:bay} nói: tỉ lệ khối lượng đầu ra mà \emph{nhãn} được phép điều
+khiển nhiều nhất là $(A+C)/n$. Với ZLG$^+$ ($\beta=1$,
+$\|c\|_1=nC(1-\epsaux)$), ghép với Bổ đề \ref{bd:dolon}:
+\begin{equation}
+\frac{A}{n}\;\le\;\frac{2\,w_{\max}\,\epstr}{C\,(1-\epsaux)} .
+\label{eq:tilekhoiluong}
+\end{equation}
+Chú ý $1/C$ ở mẫu số --- đó là lý do chặn này cắn \emph{sớm}. Thế các giá trị
+minh họa $C=10$, $\epsaux=0{,}25$, $w_{\max}=1$, $n=640$ (đều \textbf{chưa
+đo} trên pipeline thật, đưa vào chỉ để thấy bậc độ lớn):
+
+\begin{center}
+\begin{tabular}{@{}ccc@{}}
+\toprule
+$\epstr$ & $(A+C)/n$ tối đa & khối lượng do tiên nghiệm phụ trợ quyết định \\
+\midrule
+$0{,}7$  & $0{,}20$ & $\ge 80\%$ \\
+$0{,}3$  & $0{,}10$ & $\ge 90\%$ \\
+$0{,}05$ & $0{,}03$ & $\ge 97\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Không có ngưỡng và không có sụp đổ đột ngột: suy giảm bắt đầu ngay khi
+$\epstr$ còn cao, và chỉ sâu dần. Đây là chỗ báo cáo trả lời phản biện rằng
+RLU và ZLG$^+$ đã giảm từ lúc mô hình còn kém.
+
+\eqref{eq:tilekhoiluong} còn cho một \textbf{tiên đoán phân biệt được}: vì
+$A/n\propto1/C$, ở cùng $\epstr$ thì CIFAR100 phải suy giảm nặng hơn CIFAR10
+khoảng một bậc.
+\end{nhanxet}
+
+\begin{nhanxet}[Với RLU chặn này yếu, và ở sai số cao thì rỗng]
+\label{nx:rluyeu}
+\textsc{[cm]}\; Với RLU, $\beta=1/n$ và $\|c\|_1=\bar\rho$, nên
+$A/n\le2\epstr/\bar\rho$ --- \emph{không} có thừa số $1/C$. Và $\bar\rho$
+\textbf{không phải đại lượng chưa đo}: \code{rlu\_rho\_mean(args)} chỉ đọc
+\code{local\_epochs}, \code{gamma}, \code{lr}, \code{mu}, \code{fl\_scheme};
+nó không chạm vào mô hình lẫn tập phụ trợ, nên $\bar\rho$ là \emph{hằng số
+qua huấn luyện}. Đây chính là chỗ bịt đường thoát ``độ dốc $n/\|c\|_1$ tăng
+lên để bù $\|\Gamma\|_1$ co''. Với $\gamma=0{,}1$, $m=10$ thì
+$\bar\rho\approx1{,}0988$.
+
+Hệ quả: độ dốc của hai phương pháp lệch nhau bốn bậc.
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & độ dốc $n/\|c\|_1$ & $A/n$ & tại $\epstr=0{,}7$ \\
+\midrule
+ZLG$^+$ & $1/\bigl(C(1-\epsaux)\bigr)\approx0{,}133$ & $\le0{,}267\,\epstr$ & $0{,}19$ \\
+RLU     & $n/\bar\rho\approx583$ & $\le1{,}82\,\epstr$ & $1{,}27$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ở $\epstr=0{,}7$ chặn của RLU \textbf{rỗng} (quả cầu to hơn cả đơn hình).
+Nói thẳng: \emph{Mệnh đề \ref{md:bay} giải thích được ZLG$^+$ suy giảm sớm,
+nhưng không đóng được hồ sơ RLU ở vùng sai số cao}; ở đó lời giải thích hiện
+chỉ còn dựa vào phát biểu giới hạn \eqref{eq:supve}, yếu hơn hẳn.
+
+Một đường thoát khả dĩ, \textbf{chưa kiểm}: $\|\Gamma\|_1\le2n\epstr$ là chặn
+xấu nhất, bỏ qua triệt tiêu giữa $a$ và $Q^{\!\top}a$ trong \eqref{eq:Gid}.
+Nếu $\|\Gamma\|_1$ thực tế nhỏ hơn chặn đó vài lần thì RLU cũng rơi vào vùng
+chặn cắn. Đo $\|\Gamma\|_1$ thật là ưu tiên cao (Mục \ref{sec:nguyenly}).
+\end{nhanxet}
+
+\begin{nhanxet}[Thang độ gây ra lỗi; lượng tử hóa khóa lỗi lại]
+\label{nx:luongtu}
+Bản trước của mục này quy toàn bộ thất bại cho $\quant$. Đó là \emph{sai địa
+chỉ}. Hai sự thật tách rời nhau:
+
+\begin{itemize}
+\item \textbf{$A$ nhỏ, một mình nó, đã làm đầu ra sai.} Theo
+  \eqref{eq:dichchuyen}, ngay \emph{trước} khi làm tròn, đầu ra đã bị nhốt
+  cách $R(c)$ đúng $A$. Nếu $N$ cách tiên nghiệm phụ trợ $\Theta(n)$ --- đúng
+  với phân hoạch Dirichlet lệch --- thì tấn công đã sai, kể cả khi tính toán
+  bằng số thực chính xác tuyệt đối. $\quant$ \textbf{không cần thiết} cho
+  thất bại.
+\item \textbf{$\quant$ làm thất bại đó không sửa được.} Phần tuyến tính của
+  \eqref{eq:affine} là $-\tfrac{n\beta}{\|c\|_1}I$, \emph{khả nghịch} với mọi
+  $\beta>0$: về mặt thông tin, bước số thực không mất gì, dù $A$ nhỏ đến đâu
+  --- tín hiệu chỉ bị nén sai thang, và về nguyên tắc còn nhân lại được.
+  $\quant$ cắt mất khả năng ấy: khi nhiễu loạn không đẩy nổi một tọa độ qua
+  trọn một đơn vị, nó biến mất vĩnh viễn.
+\end{itemize}
+
+Nói gọn: \textbf{thang độ sai gây ra lỗi; lượng tử hóa khóa lỗi lại.} Phân
+biệt này quan trọng vì nó chỉ đúng chỗ cần sửa --- bỏ $\quant$ đi không cứu
+được ZLG$^+$ hay RLU; chỉ bỏ thước ngoài mới cứu được.
+
+Quan hệ định lượng giữa $A$ và irec trên pipeline thật --- \textbf{chưa đo};
+nhưng \eqref{eq:bay} là một ràng buộc \emph{cứng}, kiểm trực tiếp được (Mục
+\ref{sec:nguyenly}).
+\end{nhanxet}
+
+% ===========================================================================
+\section{Nhóm không dùng thống kê phụ trợ}
+\label{sec:noaux}
+
+Hai phương pháp dưới đây dựng thước \emph{từ chính tín hiệu}. Chứng minh là
+đọc mã nguồn.
+
+\subsection{LLG}
+
+\begin{menhde}[LLG bất biến thang độ]
+\label{md:llg}
+\textsc{[cm]}\; Hàm \code{LLG\_attack} thỏa \eqref{eq:batbien}.
+\end{menhde}
+
+\begin{proof}
+Mã (\code{client/attacks.py}) thực hiện, với $g:=\Gamma$:
+\begin{enumerate}
+\item $h_1=\{j:g_j<0\}$ --- \emph{bất biến} dưới $g\mapsto\lambda g$,
+  $\lambda>0$ (chỉ phụ thuộc dấu).
+\item \code{negative\_gradient} $=\sum_{j\in h_1}g_j$ --- \emph{thuần nhất
+  bậc 1}.
+\item \code{new\_impact} $=(1+1/C)\cdot$\code{negative\_gradient}$/B$ ---
+  thuần nhất bậc 1.
+\item Vòng lặp cập nhật $g_j \mathrel{-}= $ \code{new\_impact}: cả $g$ lẫn
+  bước nhảy cùng thuần nhất bậc 1, nên vectơ $g$ ở mọi thời điểm là thuần
+  nhất bậc 1 theo $\Gamma$ ban đầu.
+\item \code{argmin} của một vectơ thuần nhất bậc 1 là \emph{bất biến} với
+  $\lambda>0$ (phép nhân số dương bảo toàn thứ tự).
+\item Đầu ra là \code{prediction.count(i)} --- chỉ phụ thuộc dãy chỉ số đã
+  chọn. Bất biến.
+\end{enumerate}
+\end{proof}
+
+Điểm quyết định là bước (3): LLG lấy bước nhảy từ \code{negative\_gradient},
+tức \emph{từ chính dữ liệu bị tấn công}.
+
+\subsection{VLI$^*$}
+
+\begin{menhde}[VLI$^*$ bất biến thang độ]
+\label{md:vlistar}
+\textsc{[cm]}\; Hàm \code{VLI\_star\_closed\_form} thỏa \eqref{eq:batbien}.
+\end{menhde}
+
+\begin{proof}
+Toàn bộ phần thân dùng tín hiệu qua đúng một biểu thức:
+\begin{center}
+\code{g\_max = max(signal)};\qquad
+\code{raw = (n\_samples/C) * (1.0 - signal/g\_max)}
+\end{center}
+Dưới $\mathrm{signal}\mapsto\lambda\,\mathrm{signal}$ với $\lambda>0$: tử số
+và \code{g\_max} cùng nhân $\lambda$, nên tỉ số
+$\mathrm{signal}/\code{g\_max}$ \emph{không đổi}; do đó \code{raw} không đổi,
+và \code{\_integerize\_counts(raw, n)} cho cùng kết quả.
+\end{proof}
+
+\begin{nhanxet}[VLI$^*$ đổi chế độ hỏng, không phải xóa chế độ hỏng]
+\label{nx:vlidieukien}
+Mã \code{raise ValueError} nếu \code{g\_max} $\le$ \code{eps*scale*16}, và
+docstring ghi rõ nó cần ít nhất một lớp vắng mặt để \code{g\_max} mang nghĩa
+``lớp vắng''. Thật vậy, với lớp $j$ vắng mặt thì $G_j=\sum_i p_{i,j}>0$.
+
+Vậy VLI$^*$ thoát được chế độ hỏng ``co theo $\epstr$'' nhưng nhận một điều
+kiện tiên quyết khác: \emph{phải có lớp vắng mặt}. Đó là một đánh đổi có ý
+thức, không phải một sự miễn nhiễm vô điều kiện. Mục \ref{sec:thongtin} cho
+công thức chính xác cho trường hợp không có lớp vắng.
+\end{nhanxet}
+
+\subsection{LLG\texorpdfstring{$^+$}{+}: cùng thuật toán, khác một dòng}
+\label{sec:llgp}
+
+\begin{menhde}[LLG$^+$ không bất biến]
+\label{md:llgp}
+\textsc{[cm]}\; \code{LLGp\_attack} không thỏa \eqref{eq:batbien}.
+\end{menhde}
+
+\begin{proof}
+Mã thực hiện
+\begin{center}
+\code{gradients\_for\_prediction -= new\_offset}
+\end{center}
+với \code{new\_offset} lấy từ \code{estimate\_static\_LLG}, độc lập với
+$\Gamma$. Mà $\lambda\Gamma-\text{offset}\ne\lambda(\Gamma-\text{offset})$ khi
+$\text{offset}\ne0$, và \code{argmin} của hai vectơ đó khác nhau. Tương tự với
+\code{new\_impact}.
+\end{proof}
+
+\begin{nhanxet}[Một thí nghiệm có đối chứng nằm sẵn trong mã nguồn]
+\label{nx:doichung}
+So sánh hai hàm:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+& \textbf{bước nhảy lấy từ} & \textbf{bất biến?} \\
+\midrule
+\code{LLG\_attack}  & \code{negative\_gradient} (chính tín hiệu) & \textbf{có} \\
+\code{LLGp\_attack} & \code{estimate\_static\_LLG(aux)}          & \textbf{không} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Ngoài chỗ đó, hai thuật toán gần như trùng nhau: cùng tập dấu $h_1$, cùng vòng
+lặp \code{argmin} tham lam, cùng cách đếm. Nên cặp LLG\,/\,LLG$^+$ cô lập
+đúng một biến: \emph{thước lấy từ dữ liệu hay từ phụ trợ}.
+\end{nhanxet}
+
+\begin{nhanxet}[LLG$^+$ bị điều khiển bởi một tỉ số]
+\label{nx:llgpratio}
+\textsc{[cm]}\; Trong \code{estimate\_static\_LLG}, offset được tích lũy bằng
+\begin{center}
+\code{offset[j] += gradients\_for\_prediction[j]}
+\end{center}
+--- nó \emph{chính là}
+gradient trên dữ liệu phụ trợ, nên offset $\propto\epsaux$ theo Bổ đề
+\ref{bd:dolon}. Tín hiệu thì $\propto\epstr$. Vậy tỉ số tín hiệu/thước của
+LLG$^+$ là
+\[
+\frac{\epstr}{\epsaux},
+\]
+tức \textbf{khoảng cách tổng quát hóa}, không phải $\epstr$. Hệ quả kiểm
+chứng được: nếu lỗi train và lỗi phụ trợ co cùng nhịp, LLG$^+$ \emph{không}
+sụp theo cơ chế này; nó chỉ suy giảm đúng theo mức mô hình overfit.
+
+Trong mã, tập phụ trợ lấy từ \emph{test set}
+(\code{aux\_dataset = LocalDataset(test\_dataset, aux\_dict)} trong
+\code{main.py}), nên khoảng cách này thực sự tồn tại. Độ lớn của nó ---
+\textbf{chưa đo}.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Kiểm chứng: phép thử thuộc tính hàm}
+\label{sec:kiemchung}
+
+\subsection{Thiết kế phép thử}
+
+Với mỗi hàm tấn công $\mathcal{A}$ lấy từ \code{client/attacks.py} và
+\code{client/client\_utils.py}, ta cố định một $\Gamma$ rồi so
+$\mathcal{A}(\lambda\Gamma)$ với $\mathcal{A}(\Gamma)$ trên dãy
+$\lambda\in\{1,10^{-1},10^{-2},10^{-3},10^{-5},10^{-8}\}$.
+
+Đây \emph{không} phải mô phỏng: phép thử không cần biết $\Gamma$ sinh ra thế
+nào, không giả định gì về $Q$, $\epstr$ hay $N$. Nó kiểm một đẳng thức giữa
+hai lần gọi cùng một hàm, nên kết quả là tính chất của \emph{hàm}.
+
+\subsection{Kết quả}
+
+Với $C=10$, $B=40$, $m=10$, $n=400$, và $\Gamma$ sinh ngẫu nhiên có tổng $0$
+(ba lần thử độc lập): \textsc{[kt]}
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Hàm} & \textbf{thước lấy từ} & \textbf{bất biến trên} \\
+\midrule
+\code{LLG\_attack}                   & chính tín hiệu & $3/3$ phép thử \\
+\code{VLI\_star\_closed\_form}       & chính tín hiệu & $3/3$ phép thử \\
+\code{estimated\_entropy\_from\_grad} (lõi RLU) & phụ trợ $+$ $\bar\rho$ & $0/3$ phép thử \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+LLG và VLI$^*$ cho đầu ra \emph{giống nhau từng số nguyên} tại mọi $\lambda$
+xuống tới $10^{-8}$. Lõi RLU đổi đầu ra ở mọi bước, và hội tụ về vectơ
+\emph{đều} $n/C$ --- tương thích với \eqref{eq:supve} khi
+$\mathrm{shift}$ được đặt đều trong phép thử.
+
+LLG$^+$ và ZLG$^+$ không được thử bằng số vì chúng gọi
+\code{estimate\_static\_*} cần GPU; tính không bất biến của chúng là đại số
+hiển nhiên (Mệnh đề \ref{md:llgp}) nên không cần thử.
+
+\begin{nhanxet}[Phép thử này chứng minh và không chứng minh điều gì]
+\label{nx:gioihankiem}
+Nó chứng minh: LLG và VLI$^*$ miễn nhiễm với \emph{phép co nhân tính} của tín
+hiệu; nhóm phụ trợ thì không, và hội tụ về một vectơ không phụ thuộc nhãn.
+
+Nó \emph{không} chứng minh LLG và VLI$^*$ miễn nhiễm với huấn luyện nói
+chung. Huấn luyện không chỉ làm co $\Gamma$ --- nó còn làm \emph{trôi hướng}
+của $\Gamma$, vì $Q$ thay đổi. Phép thử giữ hướng cố định và chỉ đổi độ lớn,
+nên nó cô lập đúng một hiệu ứng. Bất biến thang độ loại bỏ \textbf{một} chế
+độ hỏng --- chế độ trội --- không phải mọi chế độ.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Thông tin nằm ở hướng, không ở độ lớn}
+\label{sec:thongtin}
+
+Mục này cho thấy sụp đổ là \emph{lựa chọn thiết kế}, không phải giới hạn
+thông tin --- và do đó biện minh cho nguyên lý ở Mục \ref{sec:nguyenly}.
+
+\begin{menhde}[Hướng được bảo toàn hoàn toàn]
+\label{md:huong}
+\textsc{[cm]}\; Trên siêu phẳng $H=\{v:\sum_j v_j=0\}$ --- nơi $\Gamma$ sống
+theo Bổ đề \ref{bd:tongkhong} --- đạo hàm của $R$ tại $c$ là
+\begin{equation}
+DR(c)\big|_H \;=\; \frac{n}{\|c\|_1}\,I .
+\label{eq:DR}
+\end{equation}
+\end{menhde}
+
+\begin{proof}
+Hệ quả trực tiếp của Mệnh đề \ref{md:affine}: ánh xạ là affine với phần tuyến
+tính $-\tfrac{n\beta}{\|c\|_1}I$ hạn chế trên $H$.
+\end{proof}
+
+Một \emph{bội vô hướng của đồng nhất thức}: sai số đầu ra tỉ lệ \emph{đúng}
+với $-\Gamma$. Hướng nguyên vẹn; chỉ độ lớn bị nén theo hệ số $n/\|c\|_1$.
+
+\begin{menhde}[Tái lập nhãn từ hướng]
+\label{md:tailap}
+\textsc{[cm]}\; Giả sử $\bar\varepsilon_j\equiv\bar\varepsilon$ như nhau giữa
+các lớp. Từ hướng của $\Gamma$ ta khôi phục được $N$ như sau:
+\begin{enumerate}
+\item Giải $u=-\bigl(I-Q^{\!\top}\bigr)^{+}\Gamma$ bằng giả nghịch đảo --- cần
+  giả nghịch đảo vì $I-Q^{\!\top}$ suy biến (Hệ quả \ref{hq:hatnhan}). Khi đó
+  $u=\bar\varepsilon N+t\one$ với $t$ chưa biết.
+\item \emph{Nếu có ít nhất một lớp vắng mặt} $j_0$ thì $N_{j_0}=0$ nên
+  $u_{j_0}=t$, tức $t=\min_j u_j$, và $N\propto u-t\one$ xác định duy nhất.
+\item \emph{Nếu không có lớp vắng mặt}, phép neo $t=\min_j u_j$ trừ đi
+  $N_{\min}:=\min_j N_j$, cho
+  \begin{equation}
+  \hat N_j \;=\; \frac{n\,(N_j-N_{\min})}{\,n-C\,N_{\min}\,}.
+  \label{eq:khongvang}
+  \end{equation}
+\end{enumerate}
+\end{menhde}
+
+\begin{proof}
+Bước 1 là định nghĩa giả nghịch đảo cộng Hệ quả \ref{hq:hatnhan} (hạt nhân
+một chiều, sinh bởi vectơ dừng của $Q$; với $Q$ đối xứng hóa đều thì là
+$\one$). Bước 3: $u_j=\bar\varepsilon N_j+t'$ nên $\min_j u_j$ đạt tại
+$\arg\min_j N_j$; trừ đi rồi chuẩn hóa về tổng $n$ với
+$\sum_j(N_j-N_{\min})=n-CN_{\min}$.
+\end{proof}
+
+\begin{nhanxet}[Kết luận của mục này]
+\label{nx:nhieu}
+Trong \eqref{eq:Gid}, $Q$ mang \emph{hình dạng} của lỗi và $\|a\|_1=n\epstr$
+mang \emph{độ lớn}. Mệnh đề \ref{md:tailap} chỉ dùng hướng của $\Gamma$ ---
+không dùng $\|\Gamma\|_1$ ở bất kỳ bước nào. Nên:
+
+\begin{quote}
+\emph{Độ lớn của tín hiệu là một \textbf{tham số nhiễu}: nó mang thông tin về
+$\epstr$, thứ kẻ tấn công không cần. Toàn bộ thông tin nhãn nằm trong hướng.}
+\end{quote}
+
+Nhóm phụ trợ mắc lỗi coi độ lớn là tín hiệu: bằng cách so $\Gamma$ với một
+hằng số tuyệt đối, chúng để một tham số nhiễu điều khiển đầu ra. Đó là lý do
+chúng sụp, và cũng là lý do sụp đổ đó \emph{tránh được}.
+
+Chất lượng khôi phục thực tế của cách đọc theo hướng trên pipeline thật ---
+\textbf{chưa đo}.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Kết luận và nguyên lý thiết kế}
+\label{sec:nguyenly}
+
+\subsection{Phát biểu}
+
+\begin{quote}
+Huấn luyện làm $\|\Gamma\|_1$ co theo $\epstr$ --- điều này \textbf{bắt buộc},
+vì gradient lớp cuối là tổng các phần dư $p_i-e_{y_i}$ nên độ lớn của nó
+\emph{chính là} lỗi (Bổ đề \ref{bd:dolon}). Phương pháp dùng phụ trợ so
+$\Gamma$ với một thước \emph{cố định không co}: thước của ZLG$^+$ là
+$1-\epsaux$ nên tăng về trần, thước của RLU là $\bar\rho\cdot$softmax nên bị
+ghim bởi chính phép chuẩn hóa softmax (Mệnh đề \ref{md:ghim}). Tỉ số
+$A=\Theta(\epstr)$ co lại, và đầu ra bị \emph{nhốt} trong quả cầu bán kính
+$A+C$ quanh tiên nghiệm lớp của tập phụ trợ (Mệnh đề \ref{md:bay}) --- một
+ràng buộc đúng ở mọi mức sai số, không phải một ngưỡng --- rồi hội tụ hẳn về
+tâm đó khi $A\to0$ (Mệnh đề \ref{md:khongbatbien}). Phương pháp không dùng phụ trợ dựng
+thước \emph{từ chính $\Gamma$} --- LLG từ \code{negative\_gradient}, VLI$^*$
+từ \code{g\_max} --- nên thước co cùng tín hiệu, tỉ số không đổi, và chúng
+bất biến thang độ (Mệnh đề \ref{md:llg}, \ref{md:vlistar}). Thông tin nhãn
+nằm ở \emph{hướng} của $\Gamma$ (Mệnh đề \ref{md:huong}, \ref{md:tailap}), thứ
+không co.
+\end{quote}
+
+Nói ngắn: \textbf{suy giảm không phải vì tín hiệu yếu, mà vì được đo bằng một
+cái thước không chịu yếu theo.}
+
+\subsection{Nguyên lý}
+
+\begin{quote}
+Điều kiện cần để một tấn công khôi phục nhãn không suy giảm theo huấn luyện
+là: đầu ra \textbf{bất biến dưới $\Gamma\mapsto\lambda\Gamma$ với mọi
+$\lambda>0$}.
+\end{quote}
+
+Đây là điều kiện \emph{kiểm được} bằng một vòng lặp vài dòng trên hàm tấn
+công, không cần chứng minh và không cần dữ liệu. Nó là đặc tả đúng của
+VLI$^*$: \code{signal/g\_max} là toàn bộ cách VLI$^*$ chạm vào tín hiệu.
+
+\subsection{Tự phản biện: bốn chỗ kết luận này không phủ}
+
+\begin{enumerate}
+\item \textbf{Huấn luyện không chỉ làm co $\Gamma$, nó còn đổi hướng.} $Q$
+  trôi theo huấn luyện. Bất biến thang độ loại bỏ chế độ hỏng trội, không
+  phải mọi chế độ. LLG và VLI$^*$ vẫn có thể suy giảm vì hướng trôi hoặc vì
+  $Q$ lệch khỏi giả định đối xứng của VLI$^*$.
+
+\item \textbf{Bất biến giải thích ổn định, không giải thích chất lượng.} Đầu
+  ra của LLG bị quyết định bởi $h_1$ và dãy \code{argmin} tham lam, nên nó có
+  thể vốn không chính xác cao ngay từ đầu. Quan sát ``LLG không giảm'' hoàn
+  toàn tương thích với một phương pháp tầm thường nhưng vững.
+
+\item \textbf{VLI$^*$ đổi chế độ hỏng chứ không xóa.} Nó cần
+  \code{g\_max}$>0$, ngầm cần ít nhất một lớp vắng mặt; không có thì
+  \eqref{eq:khongvang} cho câu trả lời bị lệch $N_{\min}$.
+
+\item \textbf{Vectơ giới hạn phụ thuộc phụ trợ.} \emph{Việc} hội tụ về một
+  vectơ không phụ thuộc nhãn là chứng minh được; \emph{vectơ nào} thì do phụ
+  trợ quyết định ($n\bar p/\sum\bar p$ cho ZLG$^+$,
+  $n\cdot\mathrm{softmax}(\bar\mu)$ cho RLU).
+
+\item \textbf{Chặn bẫy chỉ cắn khi client lệch khỏi tiên nghiệm phụ trợ.}
+  Hệ quả \ref{hq:chanduoi} chặn dưới sai số bằng
+  $\|N-\quant(R(c))\|_1-(A+C)$. Nếu client tình cờ có phân bố lớp gần với
+  tiên nghiệm phụ trợ thì số hạng đầu nhỏ và chặn không nói gì --- ZLG$^+$,
+  RLU sẽ \emph{trông như} vẫn chạy tốt dù không suy ra được gì từ nhãn. Đây
+  là một tiên đoán phân biệt được: hiệu năng còn lại của nhóm phụ trợ phải
+  tương quan với \emph{độ lệch của client khỏi phân bố đều}, chứ không với
+  chất lượng suy luận. Với Dirichlet $\alpha=0{,}5$ thì $N$ rất lệch nên chặn
+  cắn mạnh, nhưng điều đó cần đo chứ không được giả định.
+
+\item \textbf{Chặn bẫy không đóng được hồ sơ RLU ở sai số cao.} Theo Nhận xét
+  \ref{nx:rluyeu}, $\bar\rho\approx1{,}1$ làm chặn của RLU rỗng khi
+  $\epstr\gtrsim0{,}55$. Kết luận ``nhóm phụ trợ suy giảm sớm'' hiện được
+  chứng minh \emph{chặt cho ZLG$^+$} nhưng chỉ \emph{tiệm cận cho RLU}. Đây
+  là chỗ yếu nhất còn lại, và nó chỉ đóng được bằng số đo $\|\Gamma\|_1$
+  thật, không đóng được bằng thêm đại số.
+\end{enumerate}
+
+\subsection{Những gì cần đo}
+
+Danh sách các đại lượng báo cáo này ghi là \textbf{chưa đo}, theo thứ tự ưu
+tiên:
+
+\begin{enumerate}
+\item \textbf{Kiểm ràng buộc cứng \eqref{eq:bay}.} Đo $A$ và
+  $\|\hat N-\quant(R(c))\|_1$ theo từng cửa sổ. Bất đẳng thức
+  $\|\hat N-\quant(R(c))\|_1\le A+C$ phải đúng ở \emph{mọi} cửa sổ; một vi
+  phạm duy nhất bác bỏ dạng chuẩn \eqref{eq:dangchuan}. Đây là phép thử mạnh
+  nhất trong danh sách vì nó là ràng buộc nhị phân, không phải tương quan.
+  Kèm theo: $A$ so với $\epstr$ (tiên đoán: tỉ lệ thuận), và irec so với $A$
+  --- nếu irec tụt \emph{nhanh hơn} $A$ thì có cơ chế thứ hai chưa nhận ra.
+
+\item \textbf{$\|\Gamma\|_1$ thật so với chặn $2n\epstr$.} Quyết định liệu
+  Mệnh đề \ref{md:bay} có cắn được cho RLU ở $\epstr$ cao hay không (Nhận xét
+  \ref{nx:rluyeu}). Nếu $\|\Gamma\|_1/(2n\epstr)$ nhỏ hơn $\bar\rho/2$ thì hồ
+  sơ RLU đóng lại; nếu không, cần một cơ chế khác.
+
+\item \textbf{Tiên đoán $1/C$} (Nhận xét \ref{nx:lientuc}): chạy cùng
+  $\epstr$ trên CIFAR10 và CIFAR100, kiểm $A/n$ của ZLG$^+$ có giảm khoảng
+  một bậc không. RLU \emph{không} được giảm theo cách đó --- nếu cả hai cùng
+  giảm như nhau thì $1/C$ không phải cơ chế thật.
+
+\item \textbf{Độ lệch của client} (tự phản biện 5): tương quan giữa irec còn
+  lại của ZLG$^+$/RLU và $\|N-\quant(R(c))\|_1$. Nếu tương quan âm mạnh thì
+  Hệ quả \ref{hq:chanduoi} là lời giải thích đúng; nếu không, chặn bẫy không
+  phải cơ chế trội.
+\item $w_{\max}=\max_i s_i/\bar O$ --- giả thiết duy nhất còn lại của Bổ đề
+  \ref{bd:dolon} cho $\tilde G$.
+\item Hành vi của $\bar O$ khi huấn luyện (Nhận xét \ref{nx:Obar}).
+\item $\min_j\mathrm{softmax}(\bar\mu)_j$ --- chỉ quyết định dạng affine
+  \emph{chính xác} của RLU có dùng được không (Hệ quả \ref{hq:nguong}); không
+  ảnh hưởng chặn bẫy (Nhận xét \ref{nx:vaitroH2}), nên ưu tiên thấp.
+\item $\epstr/\epsaux$ --- đại lượng điều khiển của LLG$^+$ (Nhận xét
+  \ref{nx:llgpratio}).
+\end{enumerate}
+
+\appendix
+\section{Vị trí trong mã nguồn của mọi khẳng định \textsc{[cm]}}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Khẳng định} & \textbf{Tệp} & \textbf{Hàm} \\
+\midrule
+ZLG$^+$ có dạng \eqref{eq:dangchuan} & \code{client/attacks.py} & \code{ZLGp\_attack} \\
+RLU có dạng \eqref{eq:dangchuan} & \code{client/client\_utils.py} & \code{estimated\_entropy\_from\_grad} \\
+$c_{\text{RLU}}=\bar\rho\,\mathrm{softmax}(\bar\mu)$ & \code{client/attacks.py} & \code{RLU\_attack} \\
+$\bar p_j=1-\bar\varepsilon_{\mathrm{aux},j}$ & \code{client/client\_utils.py} & \code{estimate\_static\_ZLG} \\
+$\bar O=\mathrm{mean}(s_i)$ trên phụ trợ & \code{client/client\_utils.py} & \code{estimate\_static\_ZLG} \\
+LLG bất biến & \code{client/attacks.py} & \code{LLG\_attack} \\
+VLI$^*$ bất biến & \code{client/attacks.py} & \code{VLI\_star\_closed\_form} \\
+LLG$^+$ không bất biến & \code{client/attacks.py} & \code{LLGp\_attack} \\
+offset của LLG$^+$ là gradient phụ trợ & \code{client/client\_utils.py} & \code{estimate\_static\_LLG} \\
+$\bar\rho$ không phụ thuộc mô hình & \code{client/attacks.py} & \code{rlu\_rho\_mean} \\
+Phụ trợ lấy từ test set & \code{main.py} & dòng \code{aux\_dataset = ...} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

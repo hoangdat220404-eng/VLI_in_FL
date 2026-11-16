@@ -1,0 +1,1905 @@
+% ============================================================================
+%  BAO CAO (tieng Viet)
+%  Khoi phuc nhan tu cap nhat cuc bo: co che suy giam cua cac phuong phap
+%  dua tren hieu chuan phu tro, va mot uoc luong bat bien thang do.
+%
+%  Compile duoc bang CA HAI engine:
+%     pdflatex VLI_baocao_vi.tex     (chay 3 lan)   -- hien thi dung
+%     xelatex  VLI_baocao_vi.tex     (chay 3 lan)   -- NEN DUNG: copy-paste duoc
+% ============================================================================
+\documentclass[11pt]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T5]{fontenc}
+\else
+  \usepackage{fontspec}   % mac dinh Latin Modern, khong can font he thong
+\fi
+\usepackage[vietnamese]{babel}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{pdflscape}
+\usepackage[hidelinks]{hyperref}
+
+% --- moi truong dinh ly, dung CHUNG mot bo dem de so thu tu lien tuc --------
+\newtheorem{dinhly}{Định lý}
+\newtheorem{bode}[dinhly]{Bổ đề}
+\newtheorem{menhde}[dinhly]{Mệnh đề}
+\newtheorem{hequa}[dinhly]{Hệ quả}
+\newtheorem{giathiet}[dinhly]{Giả thiết}
+\theoremstyle{remark}
+\newtheorem{nhanxet}[dinhly]{Nhận xét}
+\renewcommand{\proofname}{Chứng minh}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\pos}[1]{\left[#1\right]_+}
+\newcommand{\simplex}{\Delta_n}
+\DeclareMathOperator{\softmaxop}{softmax}
+\DeclareMathOperator{\LSEop}{LSE}
+\DeclareMathOperator*{\argmaxop}{arg\,max}
+\DeclareMathOperator*{\argminop}{arg\,min}
+
+\renewcommand{\arraystretch}{1.25}
+
+\title{Khôi phục nhãn từ cập nhật cục bộ trong học liên kết:\\
+cơ chế suy giảm của các phương pháp hiệu chuẩn bằng dữ liệu phụ trợ,\\
+và một ước lượng bất biến thang độ}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Chúng tôi nghiên cứu bài toán khôi phục số lượng mẫu theo từng lớp trong một
+cửa sổ cập nhật của một client, từ gradient tích lũy của bias ở lớp tuyến
+tính cuối. Chúng tôi chứng minh hai đồng nhất thức chính xác liên hệ gradient
+đó với \emph{khối lượng lỗi} theo lớp, rồi dùng chúng để phân loại chính xác
+xem phương pháp nào suy giảm, ở mức nào, và vì sao. Cơ chế trung tâm: một ước
+lượng kết hợp cập nhật quan sát được với một thống kê \emph{có độ lớn tuyệt
+đối} đo từ bên ngoài cửa sổ bị tấn công thì tiến về một đại lượng
+\emph{không phụ thuộc chút nào} vào nhãn cần tìm (Định lý~\ref{dl:supdo}), vì
+chuẩn gradient bị chặn bởi lỗi huấn luyện (Bổ đề~\ref{bd:chuan}) còn thống kê
+kia thì không. Chúng tôi chứng minh ZLG$^+$ và bước đầu của RLU \emph{sụp đổ}
+theo cơ chế này, với một biên tường minh cho đầu ra nguyên
+(Hệ quả~\ref{hq:apdung}); rằng iLRG thất bại vì một lí do khác hẳn --- điều
+kiện số (Mục~\ref{sec:ilrg}); và rằng đầu ra của LLG$^+$ cuối cùng chỉ còn
+phụ thuộc nhãn qua \emph{mẫu dấu} của tín hiệu, tức không quá $C$ bit
+(Mệnh đề~\ref{md:llgp}).
+Sau đó chúng tôi trình bày VLI và dạng đóng VLI$^*$, với tính chất định danh
+là bất biến theo thang độ của cập nhật (Mệnh đề~\ref{md:batbien}); dưới một
+giả thiết đối xứng mà chúng tôi chứng minh là lựa chọn \emph{duy nhất} tương
+thích với tính hoán vị nhãn (Mệnh đề~\ref{md:hoanvi}), VLI$^*$ thu về một
+biểu thức không thang độ duy nhất và \emph{chính xác}
+(Định lý~\ref{dl:dangdong}). Chúng tôi phát biểu các chế độ thất bại của giả
+thiết đó một cách định lượng, thay vì khẳng định rằng nó đúng.
+\end{abstract}
+
+\tableofcontents
+
+% ============================================================================
+\section{Phạm vi và đóng góp}
+
+\paragraph{Những gì báo cáo này thiết lập.}
+\begin{enumerate}
+\item Hai đồng nhất thức chính xác cho gradient bias của lớp cuối
+  (Bổ đề~\ref{bd:chuan} và~\ref{bd:dongnhat}), bao gồm tính chất tổng bằng
+  không $\sum_j G_j = 0$ --- tính chất này về sau làm phần lớn công việc.
+\item Một định lý (Định lý~\ref{dl:supdo}) tách làm hai phần --- định tính
+  chỉ cần \emph{tính liên tục tại một điểm}, định lượng cần Lipschitz
+  \emph{cục bộ} --- cùng Bổ đề~\ref{bd:lipcucbo} cung cấp hằng số Lipschitz
+  cục bộ tường minh $2n/\delta$. Nhờ đó Hệ quả~\ref{hq:apdung} \emph{chứng
+  minh được} rằng ZLG$^+$ và RLU thỏa cả hai phần, điều mà một phát biểu đòi
+  Lipschitz toàn cục không làm được (Mệnh đề~\ref{md:lipschitz}).
+\item Một phân loại chính xác thay cho khẳng định ``mọi phương pháp đều sụp'':
+  ZLG$^+$ và RLU sụp về một dự đoán độc lập nhãn; iLRG thất bại do điều kiện
+  số, không do hiệu chuẩn; đầu ra của LLG$^+$ chỉ còn phụ thuộc nhãn qua mẫu
+  dấu $h_1$, nên mang không quá $C$ bit (Mệnh đề~\ref{md:llgp}). LLG thuần thì
+  bất biến thang độ ở cả hai pha, điều này giải thích vì sao nó bền vững.
+\item Một chỉnh lại về nhân quả (Mục~\ref{sec:tuongtac}): việc tín hiệu co nhỏ
+  \emph{không} tự mình phá vỡ các tấn công --- thông tin nhãn vẫn khôi phục
+  được chính xác từ đại lượng thực mà ZLG$^+$ tính ra trước khi lượng tử hóa
+  (Mệnh đề~\ref{md:conthongtin}). Thất bại là \emph{tương tác} giữa một
+  \emph{lệch thang độ} $\|c\|\gg\beta\|\Gamma\|$ và một thiết kế so độ lớn
+  tuyệt đối. Lệch thang độ có hai nguồn: với ZLG$^+$ và RLU nó là cấu trúc
+  ($c$ có cỡ một vector xác suất, bất kể khoảng cách tổng quát hóa); với
+  LLG$^+$ nó là khoảng cách tổng quát hóa. Cách sửa vì vậy là bất biến thang
+  độ chứ không phải ước lượng phụ trợ tốt hơn.
+\item Hai mệnh đề bổ trợ định lượng hai khiếm khuyết riêng của RLU: khoảng
+  cách Jensen $e^{\sigma^2/2}$ khi lấy softmax của logit trung bình
+  (Mệnh đề~\ref{md:jensen}), và việc phép cắt-rồi-chuẩn-hóa khuếch đại nhiễu
+  (Mệnh đề~\ref{md:lipschitz}).
+\item Một tính chất bất biến thang độ (Mệnh đề~\ref{md:batbien}) mà ước lượng
+  đề xuất thỏa mãn còn các phương pháp cũ thì không, cùng một dạng đóng
+  (Định lý~\ref{dl:dangdong}) chính xác dưới giả thiết đối xứng đã nêu.
+\item Một lập luận về tính duy nhất (Mệnh đề~\ref{md:hoanvi}) thay thế cách
+  biện minh thông thường ``cho đơn giản'' của giả thiết đối xứng bằng ``lựa
+  chọn duy nhất khả dụng đối với một kẻ tấn công không có tri thức riêng về
+  lớp''.
+\item Một điều kiện đủ \emph{yếu hơn hẳn} giả thiết đó
+  (Mệnh đề~\ref{md:dieukienyeu}), mở rộng vùng chính xác của dạng đóng.
+\end{enumerate}
+
+\paragraph{Những gì báo cáo này \emph{không} thiết lập.}
+Vector độ khó $r$ và ma trận nhầm lẫn $Q$ giới thiệu dưới đây \emph{không}
+được khẳng định là khôi phục được từ cập nhật được chia sẻ; ước lượng tổng
+quát của Định lý~\ref{dl:tongquat} nhận chúng làm đầu vào và ở đây được dùng
+như một \emph{trần lý thuyết} (oracle). Các bảng số ở
+Mục~\ref{sec:kiemchung} là đánh giá trên mô hình sinh do các giả thiết hàm ý,
+\textbf{không phải thí nghiệm trên một mạng đã huấn luyện}; chúng kiểm chứng
+phần đại số và đo độ nhạy, và được ghi rõ như vậy ở mọi nơi.
+
+% ============================================================================
+\section{Kí hiệu}
+\label{sec:kihieu}
+
+Một cửa sổ của client chứa $n$ mẫu thuộc $C$ lớp. Với mẫu thứ $i$:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+Kí hiệu & Ý nghĩa \\
+\midrule
+$y_i \in \{1,\dots,C\}$ & nhãn thật của mẫu $i$ \\
+$z_i \in \R^C$ & vector logit, $z_i = W e_i + b$ với $e_i$ là embedding \\
+$p_i = \softmaxop(z_i)$ & phân phối lớp mà mô hình dự đoán \\
+$e_{y_i}$ & vector one-hot của lớp đúng \\
+$\ell_i = -\log p_{i,y_i}$ & hàm mất mát cross-entropy \\
+$L_{\mathrm{tr}} = n^{-1}\sum_i \ell_i$ & mất mát huấn luyện trung bình trên cửa sổ \\
+\midrule
+$N_j = \#\{i : y_i = j\}$ & số mẫu thật của lớp $j$; $\sum_j N_j = n$ \\
+$\pi_j = N_j/n$ & tỉ lệ lớp thật \\
+$P_j = \sum_i p_{i,j}$ & tổng khối lượng dự đoán dồn vào lớp $j$ \\
+$G = \sum_{i=1}^n (p_i - e_{y_i})$ & \textbf{tín hiệu gradient bias} \\
+\midrule
+$\epsilon_i = 1 - p_{i,y_i}$ & lỗi của mẫu $i$ \\
+$\bar\epsilon = n^{-1}\sum_i \epsilon_i$ & lỗi trung bình trên cửa sổ \\
+$\bar\epsilon_j = N_j^{-1}\sum_{i:y_i=j}\epsilon_i$ & lỗi trung bình của lớp $j$ (lớp có mặt) \\
+$a_j = N_j \bar\epsilon_j$ & \textbf{khối lượng lỗi} của lớp $j$; $a_j = 0$ nếu lớp vắng mặt \\
+$r_j = \bar\epsilon_j/\bar\epsilon$ & độ khó tương đối; $a_j = N_j r_j \bar\epsilon$ \\
+$\kappa = r_{\max}/r_{\min}$ & độ phân tán độ khó trên các lớp có mặt \\
+\midrule
+$E_j = \sum_{i:y_i\ne j} p_{i,j}$ & khối lượng lỗi chảy \emph{vào} lớp $j$ \\
+$Q_{jk}$ & tỉ lệ khối lượng lỗi của lớp $j$ chuyển sang lớp $k$; $Q_{jj}=0$ \\
+$v$ & vector Perron của $Q^T$: $Q^Tv = v$, $\one^Tv=1$ \\
+\midrule
+$M_i = z_{i,y_i} - \LSEop_{k\ne y_i} z_{i,k}$ & \emph{margin}; $\epsilon_i = (1+e^{M_i})^{-1}$ \\
+$\simplex = \{x \in \R^C : x \ge 0,\ \one^Tx = n\}$ & simplex xác suất được phóng lên $n$ \\
+$\pos{x} = \max(x,0)$ & phần dương theo từng thành phần \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ma trận chuyển lỗi ngoài đường chéo được định nghĩa khi $a_j > 0$ bởi
+\[
+ Q_{jk} = \frac{\sum_{i : y_i = j} p_{i,k}}{a_j} \quad (k \ne j),
+ \qquad Q_{jj} = 0 .
+\]
+Mỗi hàng được định nghĩa đều không âm và có tổng bằng một, vì
+$\sum_{k\ne j}\sum_{i:y_i=j} p_{i,k} = \sum_{i:y_i=j}(1-p_{i,j}) = a_j$. Một
+lớp có khối lượng lỗi bằng không có thể được gán phân phối tùy ý trên các lớp
+còn lại; nó không đóng góp gì vào $Q^Ta$.
+
+\paragraph{Điểm trục của toàn bộ báo cáo.}
+Phép chia cho $a_j$ chính là thứ \emph{loại bỏ} $\bar\epsilon$ khỏi $Q$: ma
+trận này mang \emph{hình dạng} nhầm lẫn của mô hình, không mang \emph{độ lớn}
+của nó. Tương tự với $r$, vốn là một tỉ số giữa hai lỗi. Sự phân biệt giữa
+\emph{hình dạng} và \emph{độ lớn} là bản lề của mọi lập luận phía sau.
+
+\paragraph{Quy ước về tín hiệu.}
+Một cài đặt thực tế tích lũy gradient của mất mát \emph{trung bình} theo từng
+minibatch. Khi mọi minibatch có kích thước $B$ và mỗi cửa sổ gồm $m$ bước
+($n = mB$), tín hiệu tích lũy sai khác với tổng theo mẫu $G$ ở trên bởi một
+hệ số dương chung, và có thể thêm một phép chuẩn hóa cửa sổ chung nữa. Mọi
+công thức được tuyên bố là bất biến thang độ dưới đây đều không bị ảnh hưởng
+bởi hệ số như vậy. Dưới SGD thuần, cập nhật trọng số ở server có dấu ngược
+lại; ở đây $G$ luôn kí hiệu gradient của mất mát.
+
+% ============================================================================
+\section{Các đồng nhất thức chính xác}
+
+\begin{bode}[Chuẩn gradient bị kiểm soát bởi lỗi huấn luyện]
+\label{bd:chuan}
+Với mọi mẫu, $\|p_i - e_{y_i}\|_1 = 2\epsilon_i$. Do đó
+\[
+ \|G\|_1 \;\le\; 2n\bar\epsilon \;\le\; 2n L_{\mathrm{tr}} .
+\]
+\end{bode}
+
+\begin{proof}
+Thành phần ứng với lớp đúng của $p_i - e_{y_i}$ có giá trị tuyệt đối
+$1 - p_{i,y_i} = \epsilon_i$. Các thành phần còn lại đều không âm và có tổng
+bằng $1 - p_{i,y_i} = \epsilon_i$. Cộng lại được $2\epsilon_i$. Bất đẳng thức
+tam giác cho $\|G\|_1 \le \sum_i \|p_i - e_{y_i}\|_1 = 2n\bar\epsilon$. Cuối
+cùng $1 - x \le -\log x$ với $x \in (0,1]$; áp dụng tại $x = p_{i,y_i}$ rồi
+lấy trung bình.
+\end{proof}
+
+Bổ đề~\ref{bd:chuan} là phát biểu định lượng của hiện tượng mà báo cáo này
+giải thích: \emph{khi mô hình khớp dần dữ liệu huấn luyện, toàn bộ tín hiệu
+khả dụng với bất kì kẻ tấn công nào đều co về không, tỉ lệ với lỗi huấn
+luyện.} Nó \emph{không} nói rằng thông tin nhãn biến mất ---
+Bổ đề~\ref{bd:dongnhat} cho thấy thông tin còn nguyên trong \emph{hướng} của
+$G$ --- nhưng nó nói rằng mọi quy trình đem $G$ so với một độ lớn ngoại lai
+cố định thì cuối cùng sẽ bị đại lượng ngoại lai đó chi phối.
+
+\begin{bode}[Các đồng nhất thức về số lượng, khối lượng lỗi và nhầm lẫn]
+\label{bd:dongnhat}
+Đặt $P_j = \sum_i p_{i,j}$. Khi đó
+\[
+ G_j = P_j - N_j = -a_j + E_j,
+ \qquad N_j = P_j - G_j,
+ \qquad E_j = (Q^Ta)_j ,
+\]
+và do đó
+\begin{equation}
+ G = -(I - Q^T)\,a .
+ \label{eq:hept}
+\end{equation}
+Hơn nữa
+\begin{equation}
+ \sum_{j=1}^C G_j = 0 ,
+ \label{eq:tongkhong}
+\end{equation}
+và nếu $N_j = 0$ thì $G_j = P_j \ge 0$. Cuối cùng, vì
+$a_j = N_j r_j \bar\epsilon$, tín hiệu \emph{phân tích thành nhân tử}
+\begin{equation}
+ G = \bar\epsilon \cdot \Bigl[-(I-Q^T)\,(N \odot r)\Bigr],
+ \label{eq:nhantu}
+\end{equation}
+trong đó $\odot$ là phép nhân theo từng thành phần, và theo
+Bổ đề~\ref{bd:chuan} vector trong ngoặc có $\|\cdot\|_1 \le 2n$.
+\end{bode}
+
+\begin{proof}
+Thành phần thứ $j$ của $G$ cộng dồn toàn bộ khối lượng dự đoán dồn vào lớp
+$j$ rồi trừ một đơn vị cho mỗi mẫu thuộc lớp $j$, cho ra $P_j - N_j$. Tách
+$P_j$ thành phần của chính lớp đúng
+$\sum_{i:y_i=j}p_{i,j} = N_j - a_j$ và phần của các lớp khác $E_j$; ta được
+$G_j = -a_j + E_j$ và tính chất về dấu ở lớp vắng mặt. Với dạng nhầm lẫn, với
+mỗi lớp đích $k$,
+\[
+ E_k = \sum_{j \ne k}\ \sum_{i : y_i = j} p_{i,k}
+     = \sum_j a_j Q_{jk} = (Q^Ta)_k ,
+\]
+thế vào $G = -a + E$ ta được~\eqref{eq:hept}. Với~\eqref{eq:tongkhong}, ta có
+$\sum_j P_j = \sum_i \sum_j p_{i,j} = n$ và $\sum_j N_j = n$.
+Đẳng thức~\eqref{eq:nhantu} là việc thay $a = \bar\epsilon\,(N\odot r)$
+vào~\eqref{eq:hept} rồi rút $\bar\epsilon$ ra ngoài.
+\end{proof}
+
+\begin{nhanxet}[Phân tích nhân tử nói gì và không nói gì]
+Đẳng thức~\eqref{eq:nhantu} là chính xác, nhưng vector trong ngoặc phụ thuộc
+vào $Q$ và $r$ của cửa sổ, mà hai đại lượng này \emph{thay đổi} khi mô hình
+huấn luyện (Mục~\ref{sec:kiemchung} đo được $Q$ trôi tới $151\%$). Vì vậy
+không được đọc~\eqref{eq:nhantu} là ``$G$ chỉ đổi thang độ khi $\bar\epsilon$
+giảm''. Điều nó cho thấy là: $\bar\epsilon$ là một nhân tử chung, còn nhân
+tử còn lại bị chặn ($\|\cdot\|_1\le 2n$), và có thể bằng không trong trường
+hợp suy biến (cửa sổ cân bằng với $Q$ đều cho $G \equiv 0$).
+\end{nhanxet}
+
+\begin{nhanxet}
+Đồng nhất thức~\eqref{eq:tongkhong} có ba hệ quả được dùng lại nhiều lần.
+(i) Một $G$ khác không \emph{buộc phải} có một thành phần dương, nên cái mốc
+mà VLI$^*$ sử dụng luôn tồn tại miễn tín hiệu không đồng nhất bằng không.
+(ii) Việc bảo toàn khối lượng trong Định lý~\ref{dl:dangdong} là tự động, nên
+\emph{không cần} bước chuẩn hóa nào. (iii) Bản thân gradient trung bình của
+mỗi minibatch cũng có tổng bằng không, vì $B^{-1}(B - B) = 0$; tín hiệu tích
+lũy do đó thừa hưởng~\eqref{eq:tongkhong} tới sai số dấu phẩy động, dù mô
+hình có dịch chuyển giữa các bước.
+\end{nhanxet}
+
+\begin{nhanxet}[Tính đúng đắn qua nhiều bước cục bộ]
+Bổ đề~\ref{bd:chuan} và~\ref{bd:dongnhat} là các phát biểu theo từng mẫu và
+vẫn đúng khi các mẫu khác nhau được đánh giá tại các trạng thái mô hình cục
+bộ khác nhau. Chúng \emph{không} tự động mô tả cập nhật của optimizer ở server
+khi cập nhật đó còn chứa trạng thái momentum, weight decay, số hạng proximal,
+hay số hạng chỉnh của FedDyn. Mục~\ref{sec:gioihan} sẽ quay lại điểm này.
+\end{nhanxet}
+
+% ============================================================================
+\section{Các phương pháp cơ sở}
+\label{sec:coso}
+
+Chúng tôi viết lại mỗi phương pháp đã công bố đúng theo dạng nó được cài đặt,
+để mục tiếp theo có thể chỉ ra chính xác đại lượng nào được mỗi phương pháp
+vay từ bên ngoài cửa sổ bị tấn công. Các đại lượng có gạch ngang hay mũ
+($\bar p$, $\bar O$, $\mathrm{shift}$, $\mathrm{offset}$) được đo trên một
+tập \emph{phụ trợ} (auxiliary) mà kẻ tấn công có --- trong thực tế là một
+phần được phân tầng của tập kiểm tra, nên xấp xỉ cân bằng theo lớp.
+
+\paragraph{Hai tín hiệu mà mã nguồn thật sự dùng.}
+Mã nguồn tích lũy gradient của mất mát \emph{trung bình} theo batch rồi chia
+cho $m$, nên tín hiệu bias mà RLU và VLI$^*$ nhận là $G/n$. Còn LLG,
+LLG$^+$ và ZLG$^+$ không dùng gradient bias mà dùng gradient trọng số cộng
+theo chiều embedding, $u_j = \sum_d \Delta W_{jd}$. Vì
+$u_j = n^{-1}\sum_i (p_{i,j}-\mathbb{1}[y_i=j])\,s_i$ với
+$s_i = \sum_d e_{i,d}$, ta viết $u = \bar O\,\tilde G/n$, trong đó
+\[
+ \tilde G_j = \sum_i w_i\,(p_{i,j} - \mathbb{1}[y_i=j]),
+ \qquad w_i = s_i/\bar O .
+\]
+Với embedding sau ReLU thì $s_i \ge 0$, nên $\tilde G$ vẫn có tổng bằng không
+(như~\eqref{eq:tongkhong}) và $\|\tilde G\|_1 \le 2n\,w_{\max}\,\bar\epsilon$
+(như Bổ đề~\ref{bd:chuan}, thêm nhân tử $w_{\max} = \max_i w_i$). Mọi kết
+luận ``sụp đổ'' cho ba phương pháp này do đó cần thêm giả thiết $w_{\max}$
+bị chặn, tức không có mẫu nào có tổng embedding lớn bất thường so với trung
+bình phụ trợ. Khi mọi $w_i = 1$ thì $\tilde G = G$. Dưới đây $\Gamma$ kí
+hiệu chung tín hiệu mà một phương pháp dùng ($G$ hoặc $\tilde G$).
+
+\paragraph{iLRG (Ma và cộng sự, 2023).}
+Khôi phục ước lượng embedding theo lớp bằng tỉ số giữa gradient trọng số và
+gradient bias, $\hat e_j = \nabla_{W_j}\!/\,\nabla_{b_j}$, đưa nó qua bộ phân
+lớp để thu các vector xác suất khôi phục, rồi giải hệ tuyến tính tìm số lượng
+bằng giả nghịch đảo.
+
+\paragraph{LLG (Wainakh và cộng sự, 2021).}
+Với tín hiệu $u = \sum_d \Delta W$, tính một đại lượng vô hướng
+\emph{impact} từ chính tín hiệu quan sát được,
+\[
+ \mathrm{impact} = \Bigl(1 + \tfrac1C\Bigr)\frac{\sum_{j : u_j<0} u_j}{B}
+ \;<\; 0,
+\]
+chọn mọi lớp có thành phần âm (tập $h_1$), rồi lần lượt gán các suất còn
+lại cho thành phần đang là $\argminop$; mỗi lần gán, thành phần đó được
+\emph{cộng thêm} $|\mathrm{impact}|$ (mã nguồn viết \texttt{add(-impact)}).
+
+\paragraph{LLG$^+$ (Wainakh và cộng sự, 2021).}
+Như LLG, nhưng $h_1$ được chọn trên $u$ còn vòng tham lam chạy trên
+$u - \mathrm{offset}$, và impact được đo trên dữ liệu phụ trợ:
+\[
+ \mathrm{offset}_j = \text{trung bình thành phần $j$ khi nhãn thật $\ne j$},
+ \qquad
+ \mathrm{impact} \approx -\Bigl(1+\tfrac1C\Bigr)\frac{\bar O\,\bar\epsilon_{\mathrm{aux}}}{B}
+\]
+(lấy trung bình với giá trị đo trước khi huấn luyện). Cả hai đều có độ lớn
+tỉ lệ với $\bar\epsilon_{\mathrm{aux}}$.
+
+\paragraph{ZLG$^+$ (Geng và cộng sự, 2021).}
+Với $u = \bar O\,\tilde G/n$ như trên,
+\begin{equation}
+ \widehat N \;\propto\; \Bigl[n\Bigl(\bar p - \frac{u}{\bar O}\Bigr)\Bigr]_+
+ \;=\; \bigl[n\bar p - \tilde G\bigr]_+ ,
+ \label{eq:zlg}
+\end{equation}
+rồi nhân lại cho tổng bằng $n$; mã nguồn có thêm \texttt{int} trước và
+\texttt{round} sau phép nhân lại (Hệ quả~\ref{hq:apdung}). Ở đây $\bar p_j$
+là độ tin cậy trung bình vào lớp đúng $j$ trên dữ liệu phụ trợ, và $\bar O$ là
+tổng embedding trung bình trên dữ liệu phụ trợ.
+
+\paragraph{RLU (Chen và Vikalo, 2024).}
+Với tín hiệu bias trung bình $G/n$ như mã nguồn,
+\begin{equation}
+ \widehat N = n \cdot \frac{\pos{\mathrm{shift}\cdot\bar\rho - G/n}}
+                           {\bigl\|\pos{\mathrm{shift}\cdot\bar\rho - G/n}\bigr\|_1},
+ \qquad \mathrm{shift} = \softmaxop(\mu_{\mathrm{aux}}),
+ \label{eq:rlu}
+\end{equation}
+trong đó $\mu_{\mathrm{aux}}$ là vector \emph{logit trung bình} theo lớp đo
+trên dữ liệu phụ trợ và $\bar\rho$ là một hệ số vô hướng tích lũy theo bước.
+Đây là \emph{lần gọi đầu}; sau đó một thủ tục tìm kiếm hậu nghiệm điều chỉnh
+$\mathrm{shift}$ và gọi lại~\eqref{eq:rlu} lần nữa.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llll@{}}
+\toprule
+Phương pháp & Đại lượng vay từ ngoài & Đơn vị & Dạng \\
+\midrule
+iLRG      & không (dùng $\nabla W/\nabla b$) & --- & giả nghịch đảo \\
+LLG       & không                            & --- & tự hiệu chuẩn, tham lam \\
+LLG$^+$   & $\mathrm{offset}$, impact        & tuyệt đối, $\propto \bar\epsilon_{\mathrm{aux}}$ & cộng \\
+ZLG$^+$   & $\bar p$, $\bar O$               & tuyệt đối, $\bar p \approx 1$                    & \eqref{eq:zlg} \\
+RLU       & $\mathrm{shift}$                 & tuyệt đối, vector xác suất ($\|\cdot\|_1=1$)    & \eqref{eq:rlu} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section{Cơ chế thất bại}
+\label{sec:thatbai}
+
+\subsection{Hiệu chuẩn chỉ bằng dữ liệu phụ trợ trở thành độc lập với nhãn}
+
+\begin{dinhly}[Sự sụp đổ của các ước lượng hiệu chuẩn bằng dữ liệu phụ trợ]
+\label{dl:supdo}
+Giả sử một ước lượng tỉ lệ lớp có dạng
+\[
+ \widehat\pi = \Phi\bigl(c - \beta G\bigr),
+\]
+trong đó $c$ và hệ số $\beta>0$ chỉ phụ thuộc vào thông tin bên ngoài cửa sổ
+bị tấn công. Khi đó:
+\begin{enumerate}
+\item[(i)] \textup{(Định tính.)} Nếu $\Phi$ \emph{liên tục tại} $c$ thì
+ $\widehat\pi \to \Phi(c)$ khi $\bar\epsilon \to 0$ --- một vector được xác
+ định hoàn toàn bởi $c$ và \emph{không} bởi các nhãn cần tìm.
+\item[(ii)] \textup{(Định lượng.)} Nếu thêm nữa $\Phi$ là $L_\Phi$-Lipschitz
+ trên một lân cận của $c$ chứa mọi $c-\beta G$ đang xét, thì
+\begin{equation}
+ \bigl\|\widehat\pi - \Phi(c)\bigr\|
+ \;\le\; L_\Phi\,\beta\,\|G\|_1
+ \;\le\; 2 L_\Phi\,\beta\, n\,\bar\epsilon
+ \;\le\; 2 L_\Phi\,\beta\, n\, L_{\mathrm{tr}} .
+ \label{eq:supdo}
+\end{equation}
+\end{enumerate}
+Ở đây $\Phi$ có thể trả về tỉ lệ hoặc số lượng; nếu nó trả về số lượng (như
+$R$ ở Bổ đề~\ref{bd:lipcucbo}) thì thừa số $n$ đã nằm sẵn trong $L_\Phi$.
+Phát biểu vẫn đúng khi thay $G$ bởi tín hiệu có trọng số $\tilde G$, với
+$\|\tilde G\|_1 \le 2nw_{\max}\bar\epsilon$ (Mục~\ref{sec:coso}).
+\end{dinhly}
+
+\begin{proof}
+(i) Theo Bổ đề~\ref{bd:chuan}, $\|\beta G\|_1 \le 2\beta n\bar\epsilon \to 0$,
+nên đối số $c-\beta G \to c$; tính liên tục tại $c$ cho
+$\Phi(c-\beta G) \to \Phi(c)$. (ii) Tính Lipschitz cục bộ cho
+$\|\Phi(c-\beta G) - \Phi(c)\| \le L_\Phi\|\beta G\|_1$; áp dụng lại
+Bổ đề~\ref{bd:chuan}.
+\end{proof}
+
+\begin{nhanxet}[Khi $c$ cũng thay đổi theo huấn luyện]
+Trong thực tế $c$ và $\beta$ được đo lại trên mô hình hiện tại, nên chúng cũng
+thay đổi khi $\bar\epsilon \to 0$. Phát biểu đúng khi đó là
+$\mathrm{dist}\bigl(\widehat\pi_t, \Phi(c_t)\bigr) \to 0$ dọc theo quá trình
+huấn luyện: biên~\eqref{eq:supdo} áp dụng cho từng mô hình, và vế phải tiến
+về không miễn $L_{\Phi,t}\beta_t$ bị chặn đều. Mỗi $\Phi(c_t)$ vẫn độc lập
+với nhãn, nên kết luận ``đầu ra tiến về một dự đoán độc lập nhãn'' không đổi.
+Với ZLG$^+$ và RLU, điều kiện bị chặn đều được bảo đảm vì $\|\pos{c_t}\|_1$
+bị chặn dưới (Hệ quả~\ref{hq:apdung}).
+\end{nhanxet}
+
+\begin{nhanxet}[Vì sao phải tách hai phần]
+Hai phần đòi hỏi \emph{khác hẳn} nhau về mặt tôpô, và đây là điểm dễ nhầm.
+
+Phần (i) chỉ cần tính liên tục \textbf{tại đúng một điểm} $c$: theo định
+nghĩa dãy, $x_k\to c$ kéo theo $\Phi(x_k)\to\Phi(c)$, và không đòi gì về
+$\Phi$ tại các điểm khác. $\Phi$ có thể gián đoạn tại những điểm gần $c$
+\emph{tùy ý} mà kết luận vẫn đúng --- chẳng hạn
+$\Phi(x)=\|x-c\|_1(-1)^{\lfloor 1/\|x-c\|_1\rfloor}$ gián đoạn tại vô số
+điểm tích tụ về $c$ và không Lipschitz trên bất kì lân cận nào của $c$,
+nhưng vẫn cho $\Phi(x_k)\to\Phi(c)=0$.
+
+Phần (ii) thì khác: Lipschitz là một điều kiện \textbf{hai điểm}, nên nó
+buộc phải đúng trên cả một \textbf{lân cận} --- ``Lipschitz tại một điểm''
+không phải một khái niệm có nghĩa. Đổi lại, nó mua thêm một \emph{tốc độ hội
+tụ}, tức một biên dùng được ở $\bar\epsilon$ hữu hạn.
+
+Sự phân biệt này cốt yếu vì Mệnh đề~\ref{md:lipschitz} chứng minh rằng phép
+chuẩn hóa mà RLU và ZLG$^+$ dùng \emph{không} Lipschitz \emph{toàn cục};
+Bổ đề~\ref{bd:lipcucbo} dưới đây cho thấy nó vẫn Lipschitz \emph{cục bộ}
+trên một miền rộng chứa $c$ của hai phương pháp đó
+(Nhận xét~\ref{nx:nguongmien} cho ngưỡng tường minh), nên cả (i) và (ii) đều
+áp dụng được.
+\end{nhanxet}
+
+\begin{bode}[Lipschitz cục bộ của phép cắt-rồi-chuẩn-hóa]
+\label{bd:lipcucbo}
+Đặt $R(x) = n\,\pos{x}/\|\pos{x}\|_1$. Với mọi $\delta>0$, trên miền
+$\{x : \|\pos{x}\|_1 \ge \delta\}$ ánh xạ $R$ là $(2n/\delta)$-Lipschitz theo
+chuẩn $L_1$.
+\end{bode}
+
+\begin{proof}
+Ánh xạ $x \mapsto \pos{x}$ là 1-Lipschitz. Với $v,w \ge 0$ và
+$\|v\|_1,\|w\|_1 \ge \delta$,
+\[
+ \frac{v}{\|v\|_1} - \frac{w}{\|w\|_1}
+ = \frac{v-w}{\|v\|_1} + w\,\frac{\|w\|_1-\|v\|_1}{\|v\|_1\,\|w\|_1},
+\]
+nên, dùng $\bigl|\|w\|_1-\|v\|_1\bigr| \le \|v-w\|_1$ và $\|w\|_1>0$,
+\[
+ \Bigl\|\tfrac{v}{\|v\|_1} - \tfrac{w}{\|w\|_1}\Bigr\|_1
+ \le \frac{\|v-w\|_1}{\|v\|_1} + \frac{\bigl|\|w\|_1-\|v\|_1\bigr|}{\|v\|_1}
+ \le \frac{2\|v-w\|_1}{\delta}.
+\]
+Nhân với $n$ và ghép hai bước.
+\end{proof}
+
+\begin{hequa}[ZLG$^+$ và bước đầu của RLU: biên vô điều kiện cho đầu ra]
+\label{hq:apdung}
+Viết $v = c - \beta\Gamma$ cho đối số thực, với $\Gamma = \tilde G$ cho
+ZLG$^+$ và $\Gamma = G$ cho RLU. Đọc đúng thứ tự phép toán trong mã nguồn thì
+\begin{equation}
+ \textbf{ZLG}^+:\quad \widehat N = \mathrm{round}\bigl(R(\mathrm{int}(v))\bigr),
+ \qquad
+ \textbf{RLU (lần gọi đầu)}:\quad \widehat N = \mathrm{round}\bigl(R(v)\bigr),
+ \label{eq:phantich}
+\end{equation}
+trong đó $R$ là ánh xạ của Bổ đề~\ref{bd:lipcucbo}. Điểm cần chú ý: ở
+ZLG$^+$ phép \texttt{int} nằm \emph{bên trong} phép chuẩn hóa --- nó nhiễu
+động \emph{đầu vào} của $R$, không phải đầu ra.
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llllll@{}}
+\toprule
+& $c$ & $\beta$ & $\|\pos{c}\|_1$ & đuôi rời rạc & Nguồn \\
+\midrule
+ZLG$^+$ & $n\bar p$ & $1$ (trên $\tilde G$)
+ & $n\sum_j \bar p_j \approx nC$
+ & \texttt{int} (trong), \texttt{round} (ngoài) & \texttt{attacks.py:211--217} \\
+RLU & $\mathrm{shift}\cdot\bar\rho$ & $1/n$ (trên $G$)
+ & $\bar\rho\,\|\mathrm{shift}\|_1 = \bar\rho$
+ & \texttt{round} & \texttt{client\_utils.py:128--135} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Với ZLG$^+$ giả thiết thêm $w_{\max}$ bị chặn (Mục~\ref{sec:coso}). Với RLU,
+phát biểu chỉ áp dụng cho \emph{lần gọi đầu}: lần gọi cuối dùng một $c$ phụ
+thuộc cửa sổ (Nhận xét~\ref{nx:gioihan-dl3}). Khi đó:
+\begin{enumerate}
+\item[(i)] \textup{(Phần thực.)} Vì $\|\pos{\cdot}\|_1$ là $1$-Lipschitz,
+ \[
+  \|\pos{v}\|_1 \;\ge\; \|\pos{c}\|_1 - \beta\|\Gamma\|_1 \;=:\; \delta ,
+ \]
+ nên \emph{điều kiện duy nhất} để đối số $v$ nằm trong miền của
+ Bổ đề~\ref{bd:lipcucbo} là
+ \begin{equation}
+  \beta\,\|\Gamma\|_1 \;<\; \|\pos{c}\|_1 .
+  \label{eq:dieukienmien}
+ \end{equation}
+ Khi đó $R$ liên tục và Lipschitz cục bộ với $L_\Phi = 2n/\delta$, và
+ $R(v) \to R(c)$ với tốc độ~\eqref{eq:supdo}.
+\item[(ii)] \textup{(Biên vô điều kiện trên vector đếm.)} Đặt
+ $\gamma_{\mathcal{Q}} = \tfrac12$ cho RLU và
+ $\gamma_{\mathcal{Q}} = L_\Phi + \tfrac12$ cho ZLG$^+$. \emph{Không cần
+ giả thiết nào thêm,}
+ \begin{equation}
+  \bigl\|\widehat N - R(c)\bigr\|_1
+  \;\le\; \gamma_{\mathcal{Q}}\,C \;+\; L_\Phi\,\beta\,\|\Gamma\|_1
+  \;\xrightarrow[\bar\epsilon\to0]{}\; \gamma_{\mathcal{Q}}\,C .
+  \label{eq:bienluongtu}
+ \end{equation}
+\item[(iii)] \textup{(Chuyển sang đại lượng được báo cáo.)} Đặt
+ $\mathrm{irec}(M) = n^{-1}\sum_j \min(M_j, N_j)$. Hàm này là
+ $1$-Lipschitz theo $\|\cdot\|_1/n$, nên
+ \begin{equation}
+  \bigl|\mathrm{irec}(\widehat N) - \mathrm{irec}(R(c))\bigr|
+  \;\le\; \frac{\gamma_{\mathcal{Q}}\,C + L_\Phi\beta\|\Gamma\|_1}{n}
+  \;\xrightarrow[\bar\epsilon\to0]{}\; \frac{\gamma_{\mathcal{Q}}\,C}{n}.
+  \label{eq:bienirec}
+ \end{equation}
+ Với $C = 10$, $n = 400$: RLU cho biên $C/(2n) = 1{,}25\%$; với ZLG$^+$ và
+ $\bar p_j \approx 0{,}75$ ta có $\delta = n\sum_j\bar p_j \approx 3000$, nên
+ $L_\Phi = 2n/\delta \approx 0{,}27$ và biên là
+ $C(L_\Phi+\tfrac12)/n \approx 1{,}92\%$. Tức tỉ lệ khôi phục của hai phương
+ pháp bị ghim trong khoảng $2\%$ quanh giá trị của một dự đoán \emph{độc lập
+ hoàn toàn với nhãn}.
+\end{enumerate}
+\end{hequa}
+
+\begin{proof}
+(i) là Bổ đề~\ref{bd:lipcucbo} ghép với Định lý~\ref{dl:supdo}.
+
+(ii) Với RLU, bất đẳng thức tam giác qua điểm trung gian $R(v)$:
+\[
+ \bigl\|\widehat N - R(c)\bigr\|_1
+ \le \underbrace{\bigl\|\mathrm{round}(R(v)) - R(v)\bigr\|_1}_{\le\ C/2}
+ + \underbrace{\bigl\|R(v) - R(c)\bigr\|_1}_{\le\ L_\Phi \beta \|\Gamma\|_1 \text{ theo (i)}} .
+\]
+Với ZLG$^+$ cần thêm một bước, và \emph{chính Bổ đề~\ref{bd:lipcucbo} xử lý
+nó}: vì $|\mathrm{int}(v_j) - v_j| \le 1$ với mọi $j$, ta có
+$\|\mathrm{int}(v)-v\|_1 \le C$, nên
+\[
+ \bigl\|R(\mathrm{int}(v)) - R(v)\bigr\|_1 \;\le\; L_\Phi\,\|\mathrm{int}(v)-v\|_1
+ \;\le\; L_\Phi\,C .
+\]
+Cộng với sai số của \texttt{round} ($\le C/2$) được
+$\gamma_{\mathcal{Q}}C = (L_\Phi+\tfrac12)C$. Cuối cùng áp dụng
+Bổ đề~\ref{bd:chuan} cho số hạng $\|\Gamma\|_1$ (với ZLG$^+$, ở dạng có trọng
+số của Mục~\ref{sec:coso}).
+
+(iii) Với mỗi $j$, hàm $t \mapsto \min(t, N_j)$ là $1$-Lipschitz, nên
+$\bigl|\sum_j \min(a_j,N_j) - \sum_j\min(b_j,N_j)\bigr| \le \sum_j |a_j-b_j|
+ = \|a-b\|_1$. Chia cho $n$ và áp dụng (ii).
+\end{proof}
+
+\begin{nhanxet}[Miền Lipschitz rộng đến đâu: ngưỡng tường minh]
+\label{nx:nguongmien}
+Điều kiện~\eqref{eq:dieukienmien} \emph{không} đòi $\beta\Gamma$ phải nhỏ ---
+miền của Bổ đề~\ref{bd:lipcucbo} là tập lớn $\{\|\pos{x}\|_1\ge\delta\}$, chứ
+không phải một lân cận bé quanh $c$. Thay số với $C=10$, $n=400$:
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llll@{}}
+\toprule
+& $\|\pos{c}\|_1$ & $\beta\|\Gamma\|_1$ & Ngưỡng từ~\eqref{eq:dieukienmien} \\
+\midrule
+ZLG$^+$ & $n\sum_j\bar p_j \approx 3000$ & $\le 2nw_{\max}\bar\epsilon_{\mathrm{tr}} \le 800$
+ & thỏa với \emph{mọi} $\bar\epsilon_{\mathrm{tr}}\le1$, trừ khi
+   $\bar\epsilon_{\mathrm{aux}}$ gần $1$ \\
+RLU & $\bar\rho\,\|\mathrm{shift}\|_1 = \bar\rho \approx 1{,}10$
+ & $\le 2\bar\epsilon_{\mathrm{tr}}$
+ & $\bar\epsilon_{\mathrm{tr}} < \bar\rho/2 \approx 0{,}55$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Ngưỡng của RLU ứng với một mô hình sai ít nhất $45\%$ số mẫu huấn luyện, tức
+rất xa chế độ well-trained mà báo cáo này quan tâm. Vậy
+\eqref{eq:bienluongtu}--\eqref{eq:bienirec} \emph{hợp lệ} trên toàn bộ vùng
+thực tế.
+\end{nhanxet}
+
+\begin{nhanxet}[Hợp lệ không có nghĩa là hữu dụng]
+\label{nx:hopleHuudung}
+Biên~\eqref{eq:bienirec} đúng trên toàn vùng của
+Nhận xét~\ref{nx:nguongmien}, nhưng chỉ \emph{ràng buộc} $\mathrm{irec}$ một
+cách có nghĩa khi nó nhỏ hơn hẳn $1$. Thay số ($C=10$, $n=400$,
+$\bar\epsilon_{\mathrm{aux}} = 2{,}5\,\bar\epsilon_{\mathrm{tr}}$):
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+$\bar\epsilon_{\mathrm{tr}}$ & biên~\eqref{eq:bienirec} cho ZLG$^+$ & cho RLU \\
+\midrule
+$0{,}30$ & $0{,}670$ & $2{,}42$ \\
+$0{,}10$ & $0{,}074$ & $0{,}458$ \\
+$0{,}05$ & $0{,}041$ & --- \\
+$0{,}01$ & $0{,}022$ & $0{,}050$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Vì $\mathrm{irec}\in[0,1]$, một biên $0{,}67$ gần như không nói gì. Biên trở
+nên thực sự ràng buộc khi $\bar\epsilon_{\mathrm{tr}}\lesssim 0{,}1$ với
+ZLG$^+$ và $\lesssim 0{,}03$ với RLU. Đây là một giới hạn thật và cần nói
+kèm: ở vùng $\bar\epsilon_{\mathrm{tr}}$ lớn, định lý vẫn \emph{giải thích cơ
+chế} nhưng không cho một biên định lượng hữu ích. Hiện tượng quan sát được
+không phụ thuộc vào độ chặt của biên --- Mục~\ref{sec:kiemchung} cho thấy
+ZLG$^+$ đã về sát giá trị dự đoán đều ngay từ
+$\bar\epsilon_{\mathrm{tr}}\approx0{,}1$.
+\end{nhanxet}
+
+\begin{nhanxet}[Vì sao phải viết $\mathcal{Q}$ ra tường minh]
+\label{nx:vaitroQ}
+Phần (i) \emph{một mình không đủ} để kết luận đầu ra độc lập với nhãn.
+Lí do: $R(c-\beta G) = R(c) + e$ với $e$ \emph{phụ thuộc nhãn} và
+$\|e\|\to0$; mà ``$\|e\|\to0$'' không kéo theo ``không khôi phục được nhãn
+từ $e$'' --- chính VLI$^*$ là phản ví dụ, nó khôi phục \emph{chính xác} từ
+tín hiệu cỡ $5\times10^{-12}$ (Mục~\ref{sec:kiemchung}). Suy diễn
+``$\|x_k - x\| \to 0 \Rightarrow \|f(x_k)-f(x)\| \to 0$'' \emph{là} định
+nghĩa tính liên tục của $f$ tại $x$, nên áp dụng nó cho $\mathcal{Q}$ chính
+là ngầm giả định điều cần chứng minh. Vậy $\mathcal{Q}$ là \emph{cái cổng}
+quyết định số phận của $e$: xoá nó (đầu ra đóng băng) hay khuếch đại nó
+(một chênh lệch nguyên tồn tại mãi). Phần (ii)--(iii) chặn khả năng thứ hai
+mà không cần giả thiết nào.
+\end{nhanxet}
+
+\begin{nhanxet}[Đóng băng chính xác: một sự tinh chỉnh có điều kiện]
+\label{nx:dongbang}
+Vì \texttt{int} và \texttt{round} là hằng địa phương, đầu ra còn có thể
+\emph{bằng đúng} một vector cố định chứ không chỉ nằm gần nó. Với RLU: nếu
+không toạ độ nào của $R(c)$ là số bán nguyên, gọi $\rho$ là khoảng cách tới
+số bán nguyên gần nhất; khi $L_\Phi\beta\|G\|_1 < \rho$, mà điều này được
+bảo đảm khi $\bar\epsilon < \bar\epsilon_0 = \rho/(2\beta nL_\Phi)$, ta có
+$\widehat N = \mathrm{round}(R(c))$ chính xác. Với ZLG$^+$ có \emph{hai}
+mép: cần thêm $c_j = n\bar p_j \notin \mathbb Z$ để $\mathrm{int}(v)$ đóng
+băng về $\mathrm{int}(c)$, và khi đó giới hạn là
+$\mathrm{round}\bigl(R(\mathrm{int}(c))\bigr)$, không phải
+$\mathrm{round}(R(c))$. Ba cảnh báo:
+\begin{enumerate}
+\item \textbf{Ngưỡng không đều theo $c$}: $\bar\epsilon_0 \to 0$ khi
+ $R(c)$ tiến tới mép, nên không có một $\bar\epsilon_0$ dùng chung.
+\item \textbf{Điều kiện là số học, không phải ``vị trí tổng quát''}: vì tập
+ phụ trợ cân bằng theo lớp, $\bar p$ gần đều nên $R(c)_j \approx n/C$; mép
+ của \texttt{round} rơi trúng khi $2n/C$ là số nguyên lẻ (với $C=10$ và
+ \texttt{batch\_size} chẵn thì không xảy ra). Lập luận ``trừ một tập có độ
+ đo không'' \emph{không} áp dụng được, vì $c$ nằm gần đường chéo đều chứ
+ không phải một điểm tổng quát.
+\item \textbf{Mép của \texttt{int} dễ xảy ra}: chẳng hạn $\bar p_j = 0{,}75$
+ và $n = 400$ cho $c_j = 300$ đúng số nguyên, khi đó $\mathrm{int}(v_j)$ ra
+ $300$ hoặc $299$ tùy dấu của $\tilde G_j$, tức tùy nhãn. Trong mô phỏng
+ chênh lệch đó bị \texttt{round} nuốt mất, nhưng đó là may mắn số học chứ
+ không phải điều được chứng minh.
+\end{enumerate}
+Vì vậy đóng băng chính xác chỉ là một nhận xét, còn
+\eqref{eq:bienluongtu}--\eqref{eq:bienirec} mới là phát biểu chính. Mô phỏng
+ở Mục~\ref{sec:kiemchung} cho thấy ngay khi $R(c)$ nằm đúng trên mép của
+\texttt{round}, độ lệch chỉ là \emph{một} count trên $n$, tức $0{,}25\%$.
+\end{nhanxet}
+
+\begin{nhanxet}[Hai phương pháp này \emph{không} cần Mệnh đề~\ref{md:khoangcach}]
+Trong Hệ quả~\ref{hq:apdung}, mẫu số $\|\pos{c}\|_1$ bị chặn dưới một cách
+\emph{hiển nhiên} ($\bar p \to 1$; $\mathrm{shift}$ là vector xác suất), nên
+chỉ cần Bổ đề~\ref{bd:chuan} là đủ để kết luận. Mệnh đề~\ref{md:khoangcach}
+về khoảng cách lỗi \emph{không} là trụ cột cho ZLG$^+$ và RLU; nó cần cho
+LLG$^+$, nơi $c = \mathrm{offset}$ tự nó là đại lượng $[\epsilon]^1$ và về
+nguyên tắc có thể co cùng tốc độ với $G$
+(Mệnh đề~\ref{md:llgp}).
+\end{nhanxet}
+
+Giới hạn $\Phi(c)$ của hai phương pháp này rất giàu thông tin:
+
+\begin{itemize}
+\item Với ZLG$^+$ (dạng~\eqref{eq:zlg}, $c=n\bar p$),
+  $\Phi(c) = R(c) = n\bar p/\|\bar p\|_1$. Vì $\bar p_j = 1-\bar\epsilon_{\mathrm{aux},j}
+  \to 1$ với \emph{mọi} $j$, vector này xấp xỉ \emph{phân phối đều}, nên ước
+  lượng thoái hóa thành việc dự đoán phân phối lớp đều. Dưới phân hoạch
+  Dirichlet, độ chồng lấp giữa phân phối thật của client và phân phối đều xấp
+  xỉ $0{,}54$ khi $\alpha = 0{,}5$ và $0{,}29$ khi $\alpha = 0{,}1$ với
+  $C = 10$; đó chính là các giá trị khôi phục mà phương pháp tiệm cận tới.
+  Mục~\ref{sec:kiemchung} xác nhận rằng giới hạn đúng bằng giá trị của dự
+  đoán đều. Thất bại ở đây là \emph{tiên đoán được}, không phải ngẫu nhiên.
+\item Với RLU (lần gọi đầu của~\eqref{eq:rlu}, $c=\mathrm{shift}\cdot\bar\rho$,
+  $\beta=1/n$), $\Phi(c) = n\,\mathrm{shift}/\|\mathrm{shift}\|_1$, cũng là một
+  vector độc lập với nhãn.
+\end{itemize}
+
+\begin{nhanxet}[Giới hạn của định lý: ba điều nó \emph{không} bao trùm]
+\label{nx:gioihan-dl3}
+\begin{enumerate}
+\item \textbf{LLG$^+$ không có dạng này.} Đầu ra của nó là một vector số
+ nguyên sinh bởi vòng lặp $\argminop$, và pha $h_1$ chọn theo \emph{dấu} của
+ tín hiệu trước khi trừ offset; nên \emph{không tồn tại} $\Phi$ liên tục để
+ áp dụng Định lý~\ref{dl:supdo}. LLG$^+$ được phân tích riêng ở
+ Mệnh đề~\ref{md:llgp}: đầu ra cuối cùng chỉ phụ thuộc nhãn qua mẫu dấu, nên
+ không \emph{hoàn toàn} độc lập nhãn nhưng mang không quá $C$ bit.
+\item \textbf{Thủ tục tìm kiếm hậu nghiệm của RLU không được bao trùm.} Nó
+ tính một $\mathrm{shift}$ mới từ ước lượng của lần gọi đầu rồi gọi
+ lại~\eqref{eq:rlu}; vì $\mathrm{shift}$ mới phụ thuộc cửa sổ, giả thiết ``$c$
+ chỉ phụ thuộc thông tin bên ngoài cửa sổ'' của Định lý~\ref{dl:supdo} không
+ còn đúng, nên Hệ quả~\ref{hq:apdung} chỉ phủ \emph{lần gọi đầu}. Mục tiêu
+ so khớp của thủ tục chỉ tham chiếu $\mu_{\mathrm{aux}}$ --- một đại lượng
+ phụ trợ --- và ước lượng đầu vào của nó đã sụp; tuy vậy nó \emph{có} tiêu
+ thụ thêm một đại lượng từ cửa sổ:
+ $\|O\|^2$ với $O_d = \overline{(\Delta W_{\cdot d}/\Delta b)}$, một
+ \emph{tỉ số} gradient nên bất biến thang độ. Đó là chỗ duy nhất RLU về
+ nguyên tắc còn giữ được thông tin của cửa sổ; vì $\|O\|^2$ chỉ là một vô
+ hướng điều tiết độ dài bước, chúng tôi không cho rằng nó phục hồi được số
+ lượng theo lớp, nhưng một chứng minh chặt cần phân tích vòng lặp và chúng
+ tôi không đưa ra ở đây.
+\item \textbf{iLRG không thuộc lớp này} vì nó không dùng thống kê phụ trợ
+ nào; xem Mục~\ref{sec:ilrg}.
+\end{enumerate}
+\end{nhanxet}
+
+\subsection{Vì sao độ lớn ngoại lai không co lại cùng tín hiệu}
+
+\begin{menhde}[Khoảng cách lỗi trên dữ liệu chưa thấy]
+\label{md:khoangcach}
+Nếu một mẫu bị phân loại sai theo quy tắc $\argmaxop$, thì
+$p_{i,y_i} \le 1/2$ và do đó $\epsilon_i \ge 1/2$. Hệ quả là, nếu tỉ lệ lỗi
+trên tập phụ trợ là $\tau_{\mathrm{err}}$, thì
+\[
+ \bar\epsilon_{\mathrm{aux}} \;\ge\; \tau_{\mathrm{err}}/2 .
+\]
+Do đó
+\begin{equation}
+ \frac{\bar\epsilon_{\mathrm{aux}}}{\bar\epsilon_{\mathrm{tr}}}
+ \;\ge\; \frac{\tau_{\mathrm{err}}}{2\,\bar\epsilon_{\mathrm{tr}}},
+ \label{eq:tiso}
+\end{equation}
+Vì vậy một \emph{điều kiện đủ} để tỉ số bên trái phân kỳ là
+$\tau_{\mathrm{err}}/\bar\epsilon_{\mathrm{tr}} \to \infty$, tức lỗi trên dữ
+liệu chưa thấy giảm \emph{chậm hơn} lỗi huấn luyện. Điều kiện này \emph{không
+cần thiết}: tỉ số vẫn có thể phân kỳ khi $\tau_{\mathrm{err}} = 0$, nếu các
+mẫu phụ trợ đúng nhưng có margin thấp.
+\end{menhde}
+
+\begin{proof}
+Trên một mẫu bị phân loại sai, tồn tại $k \ne y_i$ với
+$p_{i,k} \ge p_{i,y_i}$; vì $p_{i,k} + p_{i,y_i} \le 1$ nên
+$p_{i,y_i} \le 1/2$. Lấy trung bình biên dưới thu được cho $1 - p_{i,y_i}$
+trên toàn tập phụ trợ, bỏ đi phần đóng góp không âm của các mẫu phân loại
+đúng.
+\end{proof}
+
+\begin{nhanxet}[Điều kiện là \emph{tương đối}, và nó là một giả thiết]
+\label{nx:tiso}
+Điều kiện đủ ở trên \emph{không} đòi $\tau_{\mathrm{err}}$ lớn, cũng
+không đòi nó bị chặn dưới bởi một hằng số tuyệt đối. Nó chỉ đòi
+$\tau_{\mathrm{err}}$ giảm chậm hơn $\bar\epsilon_{\mathrm{tr}}$ --- và đó
+chính là định nghĩa của một khoảng cách tổng quát hóa. Điều kiện này rất dễ
+thỏa: ngay cả với $\tau_{\mathrm{err}} = 0{,}003$ (mức MNIST rất tốt), nếu
+$\bar\epsilon_{\mathrm{tr}} = 10^{-4}$ thì~\eqref{eq:tiso} vẫn đảm bảo tỉ số
+$\ge 15$; với $\bar\epsilon_{\mathrm{tr}} = 10^{-6}$ thì $\ge 1500$. Lí do là
+lỗi huấn luyện có thể bị đẩy về \emph{đúng} không bằng ghi nhớ, còn lỗi kiểm
+tra thì bình nguyên.
+
+Tuy vậy đây vẫn là một \emph{giả thiết về mô hình và dữ liệu}, không phải một
+kết quả. Nếu $\tau_{\mathrm{err}} \asymp \bar\epsilon_{\mathrm{tr}}$, chẳng
+hạn $\tau_{\mathrm{err}} = c\,\bar\epsilon_{\mathrm{tr}}$, thì~\eqref{eq:tiso}
+chỉ cho tỉ số $\ge c/2$: biên \emph{không còn đảm bảo} phân kỳ, dù tỉ số thật
+vẫn có thể phân kỳ nhờ các mẫu đúng có margin thấp. Điều này chỉ ảnh hưởng
+tới LLG$^+$ --- ZLG$^+$ và RLU không cần mệnh đề này --- và cho một tiên đoán
+khả phủ chứng, nêu ở Mục~\ref{sec:gioihan}.
+
+Ngoài ra biên là \emph{bảo thủ}: nó chỉ dùng các mẫu bị phân loại sai và bỏ
+qua hoàn toàn đóng góp của các mẫu đúng nhưng margin thấp. Vậy
+$\bar\epsilon_{\mathrm{aux}}$ thực tế \emph{lớn hơn} mức biên nói, điều này
+củng cố chứ không làm yếu kết luận.
+\end{nhanxet}
+
+Mệnh đề~\ref{md:khoangcach} là nửa thứ hai của cơ chế cho \emph{LLG$^+$}:
+Bổ đề~\ref{bd:chuan} nói $\|G\| \to 0$, còn ở đó $c = \mathrm{offset}$ tự nó
+là đại lượng $[\epsilon]^1$ nên về nguyên tắc có thể co cùng tốc độ ---
+\eqref{eq:tiso} là thứ bịt lối đó. Với ZLG$^+$ và RLU thì không cần, vì
+$\|\pos{c}\|_1$ đã bị chặn dưới hiển nhiên (Hệ quả~\ref{hq:apdung}).
+
+\subsection{Thất bại là \emph{tương tác}, không phải riêng việc tín hiệu co nhỏ}
+\label{sec:tuongtac}
+
+Sẽ sai nếu kết luận ``chính việc tín hiệu co nhỏ --- hay khoảng cách tổng
+quát hóa --- phá vỡ các tấn công này''. Việc co nhỏ \emph{không} phá hủy
+thông tin: nó chỉ làm thành phần mang nhãn trở nên nhỏ so với $c$. Mệnh đề
+sau cho thấy thông tin vẫn khôi phục được \emph{từ đại lượng thực $v$ mà
+ZLG$^+$ tính ra trước khi lượng tử hóa}.
+
+\begin{menhde}[Thông tin nhãn còn nguyên trong $R(v)$]
+\label{md:conthongtin}
+Giả sử $c>0$ theo từng thành phần, và đặt $H=\{x:\one^Tx=0\}$. Trên $H$,
+nhân Jacobi của $R$ tại $c$ tác động như một vô hướng:
+\[
+ DR(c)\,x = \frac{n}{\|c\|_1}\,x \qquad (x \in H).
+\]
+Vì tín hiệu $\Gamma$ (là $G$ hoặc $\tilde G$) nằm trong $H$
+theo~\eqref{eq:tongkhong}, ta có
+\[
+ e := R(c-\beta\Gamma) - R(c) = -\frac{\beta n}{\|c\|_1}\,\Gamma + o(\|\Gamma\|):
+\]
+ở bậc nhất, $e$ là một bội \emph{âm} của chính tín hiệu. Do đó $\Gamma$ khôi
+phục được từ $e$ tới một hệ số dương, và mọi ước lượng bất biến thang độ ---
+chẳng hạn Định lý~\ref{dl:dangdong}, dưới giả thiết của nó --- cho cùng kết
+quả khi áp dụng lên $-e$ hay lên $\Gamma$.
+\end{menhde}
+
+\begin{proof}
+Với $x>0$ ta có $R(x) = n x/\one^Tx$, nên
+$DR(c) = n\bigl(I/\|c\|_1 - c\,\one^T/\|c\|_1^2\bigr)$. Với $x\in H$ thì
+$\one^Tx = 0$, nên số hạng thứ hai triệt tiêu. Khai triển Taylor bậc nhất cho
+phần còn lại.
+\end{proof}
+
+\begin{nhanxet}[Kẻ tấn công \emph{biết} $c$, nên $e$ là đại lượng tính được]
+\label{nx:doclaiti}
+$c$ được chính kẻ tấn công đo trên tập phụ trợ của họ, nên $e = R(v)-R(c)$ là
+tính được. Mục~\ref{sec:kiemchung} cho thấy khi đọc $-e$ \emph{theo tỉ số}
+(không thang độ), tỉ lệ khôi phục là $1{,}000$ --- \emph{chính xác tuyệt
+đối} --- ngay tại $\|e\|_\infty \approx 2{,}4\times10^{-7}$, trong khi
+ZLG$^+$ trên cùng dữ liệu đó chỉ cho đúng giá trị của dự đoán đều. Nói cách
+khác, thông tin chưa bao giờ rời khỏi cập nhật; ZLG$^+$ đánh mất nó vì cộng
+một nền lớn rồi lượng tử hóa.
+\end{nhanxet}
+
+Vậy phát biểu đúng là một \textbf{hội}:
+\[
+ \text{thất bại}
+ \;=\;
+ \underbrace{\text{lệch thang độ } \|c\| \gg \beta\|\Gamma\|}_{\text{xuất hiện khi } \bar\epsilon_{\mathrm{tr}}\to0}
+ \;\wedge\;
+ \underbrace{\text{thiết kế phụ thuộc thang độ}}_{\text{so độ lớn tuyệt đối, rồi lượng tử hóa}} .
+\]
+Lệch thang độ có \emph{hai nguồn khác nhau}. Với ZLG$^+$ và RLU, $c$ có cỡ
+một vector xác suất ($\bar p\approx1$; $\mathrm{shift}$ có tổng $1$), nên chỉ
+cần $\bar\epsilon_{\mathrm{tr}}\to0$; khoảng cách tổng quát hóa không đóng
+vai trò gì. Với LLG$^+$, $c=\mathrm{offset}$ tự nó có cỡ
+$\bar\epsilon_{\mathrm{aux}}$, nên lệch thang độ đòi
+$\bar\epsilon_{\mathrm{aux}}\gg\bar\epsilon_{\mathrm{tr}}$ --- đây mới là chỗ
+khoảng cách tổng quát hóa (Mệnh đề~\ref{md:khoangcach}) đi vào. Không vế nào
+của hội một mình đủ: nếu $\|c\|\sim\beta\|\Gamma\|$ thì các thiết kế đó vẫn
+chạy; còn nếu ước lượng bất biến thang độ thì lệch thang độ không ảnh hưởng
+--- đó chính là VLI$^*$ (Mệnh đề~\ref{md:batbien}). Hệ quả thực tiễn: cách
+sửa \emph{không phải} ước lượng phụ trợ tốt hơn mà là \textbf{bất biến thang
+độ}. Mệnh đề~\ref{md:conthongtin} cũng cho một đối chứng kiểm được: đọc cùng
+tín hiệu đó theo tỉ số thì \emph{không} suy giảm.
+
+\subsection{LLG\texorpdfstring{$^+$}{+}: chỉ còn phụ thuộc nhãn qua mẫu dấu}
+\label{sec:llgp}
+
+Pha $h_1$ của LLG$^+$ chọn $\{j : u_j < 0\}$ trên tín hiệu $u$ \emph{trước
+khi} trừ offset. Tập này chỉ phụ thuộc \emph{dấu} của $u$, mà dấu không đổi
+khi nhân $u$ với một hệ số dương. Vì vậy $h_1$ không tiêu biến khi
+$\bar\epsilon\to0$, và Định lý~\ref{dl:supdo} không mô tả được LLG$^+$. Nhưng
+$h_1$ cũng là \emph{tất cả} những gì còn lại.
+
+\begin{menhde}[LLG$^+$: đầu ra là hàm của mẫu dấu]
+\label{md:llgp}
+Xét LLG$^+$ như cài đặt, với $\mathrm{offset}$ và $\mathrm{impact}<0$ đo trên
+dữ liệu phụ trợ (coi là cố định). Với mỗi tập $h \subseteq \{1,\dots,C\}$, gọi
+$F(h)$ là đầu ra khi chạy pha $h_1 = h$ rồi vòng tham lam $B-|h|$ bước xuất
+phát từ $g^0(h) = -\mathrm{offset} + |\mathrm{impact}|\,\one_h$, và gọi
+$\Delta(h)$ là hiệu nhỏ nhất giữa hai toạ độ được so sánh tại mọi bước của
+lần chạy đó. Giả thiết lần chạy đó \emph{không có hòa}, tức $\Delta(h)>0$.
+\begin{enumerate}
+\item[(i)] \textup{($h_1$ bất biến thang độ.)} $h_1(u) = h_1(cu)$ với mọi
+ $c>0$. Với tín hiệu bias $G$ thì theo Bổ đề~\ref{bd:dongnhat},
+ $G_j<0 \iff a_j > E_j$; với tín hiệu có trọng số $\tilde G$ là phiên bản có
+ trọng số của điều kiện này. Riêng toạ độ có $u_j = 0$ đúng là một mép: dấu
+ của nó không xác định.
+\item[(ii)] \textup{(Phần còn lại đóng băng.)} Nếu
+ $2\|u\|_\infty < \Delta(h_1(u))$ thì đầu ra \emph{bằng chính xác}
+ $F(h_1(u))$.
+\end{enumerate}
+Do đó khi $\bar\epsilon_{\mathrm{tr}}$ đủ nhỏ, đầu ra chỉ phụ thuộc nhãn qua
+$h_1$, nên nhận không quá $2^C$ giá trị và mang không quá $C$ bit thông tin
+về nhãn, so với $\log_2\binom{n+C-1}{C-1}$ bit cần để xác định $N$ (khoảng
+$59{,}5$ bit khi $n=400$, $C=10$).
+\end{menhde}
+
+\begin{proof}
+(i) $\mathrm{sign}(cu_j) = \mathrm{sign}(u_j)$ với $c>0$. (ii) Khi chạy với
+tín hiệu $u$, vector bước vào vòng tham lam là $g^0(h_1) + u$, và chừng nào các
+lựa chọn còn trùng với lần chạy tham chiếu thì mọi bước cộng
+$|\mathrm{impact}|$ vào cùng toạ độ. Vậy mỗi toạ độ lệch khỏi lần chạy tham
+chiếu đúng một lượng $u_k$, nên hiệu giữa hai toạ độ bất kì lệch không quá
+$2\|u\|_\infty < \Delta(h_1)$; không cặp nào đổi thứ tự, và bằng quy nạp theo
+bước, dãy $\argminop$ trùng với lần chạy tham chiếu. (Mã nguồn dùng hai giá
+trị impact phụ trợ hơi khác nhau cho hai pha; điều đó không ảnh hưởng tới lập
+luận.)
+\end{proof}
+
+Mệnh đề~\ref{md:khoangcach} đi vào đúng chỗ này: $\Delta$ có cỡ của
+$\mathrm{offset}$ và $|\mathrm{impact}|$, tức cỡ $\bar\epsilon_{\mathrm{aux}}$,
+còn $\|u\|_\infty$ có cỡ $\bar\epsilon_{\mathrm{tr}}$, nên điều kiện ở (ii)
+đòi $\bar\epsilon_{\mathrm{tr}} \ll \bar\epsilon_{\mathrm{aux}}$. Trong mô
+phỏng ở Mục~\ref{sec:kiemchung}, đầu ra khớp $F(h_1)$ trong $500/500$ trường
+hợp, và trên $3000$ vector nhãn ngẫu nhiên chỉ có $4$ đầu ra khác nhau ---
+tức LLG$^+$ thực tế gần như sụp hoàn toàn, với irec còn thấp hơn dự đoán đều.
+Điều này cũng giải thích vì sao LLG thuần bền vững: nó dùng cùng pha $h_1$,
+\emph{và} $\mathrm{impact}$ của nó được tính từ chính tín hiệu nên vòng tham
+lam của nó cũng bất biến thang độ.
+
+\subsection{Hai khiếm khuyết riêng của RLU}
+
+\begin{menhde}[Khoảng cách Jensen khi lấy trung bình logit]
+\label{md:jensen}
+Với một mẫu có margin $M$, ta có $\epsilon = (1+e^M)^{-1}$, và
+$\epsilon \approx e^{-M}$ khi $M$ lớn và dương. Nếu margin trong một lớp xấp
+xỉ $\mathcal N(\mu,\sigma^2)$ và xấp xỉ margin lớn còn hợp lệ trên phần lớn
+khối lượng của nó, thì
+\[
+ \E\bigl[e^{-M}\bigr] = e^{-\mu + \sigma^2/2},
+ \qquad e^{-\E[M]} = e^{-\mu},
+\]
+nên việc thay bằng margin trung bình \emph{đánh giá thấp} đại lượng thay thế
+này đi một hệ số $e^{\sigma^2/2}$. Bất đẳng thức Jensen cho
+$\E[e^{-M}] \ge e^{-\E[M]}$ một cách vô điều kiện.
+\end{menhde}
+
+Phương trình~\eqref{eq:rlu} đặt
+$\mathrm{shift} = \softmaxop(\mu_{\mathrm{aux}})$, tức softmax của
+\emph{logit trung bình} --- chính là phép thay thế mà
+Mệnh đề~\ref{md:jensen} mô tả. Độ chệch là hệ thống và theo chiều
+\emph{đánh giá thấp} khối lượng lỗi. Chi tiết làm nặng thêm vấn đề: huấn
+luyện làm tăng \emph{cả} $\mu$ \emph{và} $\sigma$, nên khoảng cách
+$e^{\sigma^2/2}$ lớn nhất đúng vào lúc tín hiệu yếu nhất; hai hiệu ứng cộng
+hưởng.
+
+\begin{menhde}[$R$ không Lipschitz toàn cục; phép chiếu thì có]
+\label{md:lipschitz}
+Đặt $R(y) = n\pos{y}/\|\pos{y}\|_1$ (phép cắt rồi chuẩn hóa, dùng
+trong~\eqref{eq:rlu} và sau~\eqref{eq:zlg}), và gọi $\Pi_{\simplex}$ là phép
+chiếu Euclid lên $\simplex$. Khi đó $R$ không có biên Lip\-schitz đều nào,
+còn $\Pi_{\simplex}$ thì có:
+\begin{gather*}
+ \sup_{a \ne b} \frac{\|R(a)-R(b)\|_1}{\|a-b\|_1} = \infty, \\[0.2em]
+ \|\Pi_{\simplex}(a) - \Pi_{\simplex}(b)\|_2 \le \|a-b\|_2
+ \quad \text{với mọi } a,b,
+\end{gather*}
+và do tương đương chuẩn, $\|\Pi_{\simplex}(a)-\Pi_{\simplex}(b)\|_1 \le
+\sqrt{C}\,\|a-b\|_1$. Điểm cốt yếu là $R$ \emph{không} có biên đều nào, còn
+$\Pi_{\simplex}$ thì có, trong cả hai chuẩn.
+\end{menhde}
+
+\begin{proof}
+Phép chiếu lên một tập lồi đóng khác rỗng là không giãn trong chuẩn
+\emph{Euclid} --- chuẩn định nghĩa phép chiếu --- cho khẳng định thứ hai;
+biên $L_1$ suy ra từ $\|x\|_1 \le \sqrt C\|x\|_2$ và $\|x\|_2 \le \|x\|_1$.
+Với khẳng định thứ nhất, lấy
+$a = (\delta, \delta/2, -1, \ldots, -1)$ và nhiễu theo hướng $e_1$. Tại $a$ ta
+có $\|\pos{a}\|_1 = 1{,}5\,\delta$ và $R(a)/n = (2/3, 1/3, 0, \ldots)$, nên
+đạo hàm theo hướng là
+\[
+ \lim_{\eta\to0}\frac{\|R(a+\eta e_1)-R(a)\|_1}{\eta}
+ = \frac{n}{1{,}5\,\delta}\,\bigl\|e_1 - R(a)/n\bigr\|_1
+ = \frac{4n}{9\delta} \xrightarrow[\delta\to0]{} \infty .
+\]
+Hướng nhiễu phải không song song với $\pos{a}$; nếu song song thì $R$ không
+đổi.
+\end{proof}
+
+Hệ quả thực tiễn là bước chuẩn hóa cuối của RLU và ZLG$^+$ có thể
+\emph{khuếch đại} nhiễu gradient không giới hạn, còn bước tương ứng của
+VLI$^*$ (Mục~\ref{sec:vli}) thì không thể.
+
+\begin{nhanxet}[Không có ``hệ số khuếch đại'' nào để báo cáo]
+\label{nx:khongtrichso}
+Vì supremum bằng vô cùng, \emph{mọi} con số cụ thể lấy từ một lần lấy mẫu đều
+vô nghĩa: nó chỉ phản ánh khoảng lấy mẫu chứ không phải một tính chất của $R$.
+Trong hai lần quét $2\times10^5$ cặp điểm với hai khoảng khác nhau, chúng tôi
+thu được $4{,}4\times10^4$ và $3{,}4\times10^5$. Cách báo cáo đúng là công
+thức đạo hàm theo hướng $4n/(9\delta)$: nó khớp giá trị đo tới ba chữ số có
+nghĩa trên bốn bậc độ lớn của $\delta$ (Mục~\ref{sec:kiemchung}), và cho thấy
+rõ sự phân kỳ.
+\end{nhanxet}
+
+\begin{nhanxet}[Toàn cục so với cục bộ: không có mâu thuẫn]
+Mệnh đề~\ref{md:lipschitz} là một phát biểu \emph{toàn cục}; nó không xung
+đột với Bổ đề~\ref{bd:lipcucbo}, vốn cho tính Lipschitz \emph{cục bộ} với
+hằng số $2n/\delta$ trên miền $\|\pos{x}\|_1 \ge \delta$. Hai kết quả đóng
+hai vai khác nhau: Bổ đề~\ref{bd:lipcucbo} cho phép \emph{áp dụng}
+Định lý~\ref{dl:supdo} cho ZLG$^+$ và RLU (Hệ quả~\ref{hq:apdung}); còn
+Mệnh đề~\ref{md:lipschitz} nói rằng hằng số cục bộ ấy \emph{nổ} khi
+$\|\pos{x}\|_1 \to 0$, nên không có biên đều nào trên toàn miền --- đó là
+rủi ro khuếch đại nhiễu mà VLI$^*$ tránh được.
+\end{nhanxet}
+
+\subsection{iLRG: lỗi điều kiện số, không phải lỗi hiệu chuẩn}
+\label{sec:ilrg}
+
+iLRG không dùng thống kê phụ trợ nào, nên Định lý~\ref{dl:supdo} không áp
+dụng. Khó khăn của nó khác. Theo Bổ đề~\ref{bd:dongnhat},
+$G_j = -a_j + E_j$, nên khi $\bar\epsilon \to 0$ thì \emph{cả} $a_j$ và $E_j$
+đều tiêu biến, và gradient bias dùng làm \emph{mẫu số} trong
+$\hat e_j = \nabla_{W_j}/\nabla_{b_j}$ tiến về không. Tỉ số vẫn hữu hạn trong
+số học chính xác, nhưng sai số tương đối của nó bị khuếch đại không giới hạn;
+cài đặt tham chiếu buộc phải chặn số mũ của tỉ số và thay bằng một giá trị
+định sẵn khi mẫu số đúng bằng không. Hệ tuyến tính sau đó cũng ngày càng suy
+biến, vì $p_i \to e_{y_i}$ làm mọi vector xác suất khôi phục collapse về các
+vector one-hot.
+
+\subsection{Tóm tắt chẩn đoán}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lllp{6.0cm}@{}}
+\toprule
+Phương pháp & Căn cứ & Sụp đổ? & Giới hạn hoặc triệu chứng \\
+\midrule
+iLRG & BĐ~\ref{bd:dongnhat} (điều kiện số) & --- &
+ chia cho gradient bias tiêu biến; giả nghịch đảo gần kỳ dị \\
+LLG & không áp dụng & \textbf{không} &
+ $h_1$ theo dấu \emph{và} impact tính từ $G$: bất biến thang độ. Nhưng giả
+ định $r_j\equiv1$, $Q$ đều, và nhân đáp án một batch với $m$ \\
+LLG$^+$ & MĐ~\ref{md:llgp} (+ MĐ~\ref{md:khoangcach}) & \textbf{gần toàn phần} &
+ đầu ra chỉ còn là hàm của mẫu dấu $h_1$ ($\le C$ bit); mô phỏng: $4$ đầu ra
+ khác nhau, irec dưới mức dự đoán đều \\
+ZLG$^+$ & ĐL~\ref{dl:supdo} + HQ~\ref{hq:apdung} & \textbf{toàn phần} &
+ $\widehat N \to n\bar p/\|\bar p\|_1 \approx$ phân phối đều (cần $w_{\max}$ bị chặn) \\
+RLU & ĐL~\ref{dl:supdo} + HQ~\ref{hq:apdung}, MĐ~\ref{md:jensen},~\ref{md:lipschitz} & \textbf{toàn phần} (lần gọi đầu) &
+ $\widehat N \to n\,\mathrm{shift}/\|\mathrm{shift}\|_1$; độ chệch Jensen
+ $e^{\sigma^2/2}$; chuẩn hóa khuếch đại nhiễu \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section{VLI và VLI$^*$}
+\label{sec:vli}
+
+\subsection{Nguyên lý thiết kế}
+
+Bổ đề~\ref{bd:dongnhat} viết $a_j = N_j r_j \bar\epsilon$, nên thông tin nhãn
+nằm trong cấu trúc \emph{tương đối} của $G$, còn $\bar\epsilon$ --- đại lượng
+tiêu biến khi huấn luyện --- chỉ đi vào như một hệ số chung. Điều này gợi ra
+việc đòi hỏi ở ước lượng đúng cái tính chất mà các phương pháp cũ thiếu.
+
+\begin{menhde}[Bất biến thang độ]
+\label{md:batbien}
+Gọi $\Psi$ là ánh xạ định nghĩa trong Định lý~\ref{dl:dangdong}, và
+$\Psi_{\mathrm{tq}}$ là ánh xạ của Định lý~\ref{dl:tongquat}. Với mọi $c>0$,
+\[
+ \Psi(cG) = \Psi(G), \qquad
+ \Psi_{\mathrm{tq}}(cG, r, Q) = \Psi_{\mathrm{tq}}(G,r,Q) .
+\]
+Do đó không ước lượng nào trong hai có thể bộc lộ sự sụp đổ của
+Định lý~\ref{dl:supdo}: không đại lượng có độ lớn tuyệt đối nào đi vào hai
+ánh xạ này.
+\end{menhde}
+
+\begin{proof}
+Trong Định lý~\ref{dl:dangdong}, tín hiệu chỉ xuất hiện qua tỉ số
+$G_j/G_{\max}$, và $G_{\max}(cG) = c\,G_{\max}(G)$ với $c>0$. Trong
+Định lý~\ref{dl:tongquat}, nghiệm $a$ của~\eqref{eq:hept} là thuần nhất dương
+theo $G$, và đầu ra là tỉ số $n(a_j/r_j)/\sum_k (a_k/r_k)$.
+\end{proof}
+
+\begin{nhanxet}[Bản heuristic chỉ bất biến một phần]
+Thủ tục VLI ban đầu dựng một cơ sở tổng-bằng-không với đường chéo
+$d = n^{-1}\sum_{j:G_j<0}G_j$ và ngoài đường chéo $-d/(C-1)$, nhân $d$ với
+một ``dynamic boost'' $f_1 f_2 f_3$, rồi lần lượt bóc các cột cơ sở khỏi một
+phần dư khởi tạo bằng $G$. Hệ số $f_1$ là hàm của các hình chiếu đã chuẩn hóa
+nên bất biến thang độ, nhưng $f_2 = (w_2\|G\|_2+1)^{-1}$ và
+$f_3 = w_3^{-100|d|}$ \emph{phụ thuộc độ lớn tuyệt đối} của $G$. Vậy
+heuristic vi phạm Mệnh đề~\ref{md:batbien}, và năm hằng số của nó phải dò lại
+cho từng tập dữ liệu, từng mô hình và từng mức độ chính xác.
+Định lý~\ref{dl:dangdong} loại bỏ chúng.
+\end{nhanxet}
+
+\subsection{Giả thiết đối xứng, và vì sao nó bị cưỡng bức}
+
+\begin{giathiet}[Hình học lỗi đối xứng]
+\label{gt:doixung}
+Mọi lớp có mặt đều có lỗi trung bình bằng nhau, $r_j = 1$, và mỗi lớp phân bổ
+khối lượng lỗi của nó đều trên các lớp còn lại,
+$Q_{jk} = 1/(C-1)$ với $k \ne j$. Có ít nhất một lớp vắng mặt khỏi cửa sổ, và
+$\bar\epsilon > 0$.
+\end{giathiet}
+
+Giả thiết~\ref{gt:doixung} là \emph{sai} với mọi mô hình thực. Mệnh đề sau
+giải thích vì sao nó vẫn là lựa chọn đúng cho một ước lượng bị đòi hỏi không
+dùng thông tin riêng về lớp.
+
+\begin{menhde}[Tính duy nhất dưới tính hoán vị nhãn]
+\label{md:hoanvi}
+Ma trận đều $Q_{jk} = 1/(C-1)$ $(k\ne j)$, $Q_{jj}=0$, là ma trận
+\emph{duy nhất} vừa row-stochastic, vừa có đường chéo bằng không, vừa thỏa
+$P Q P^T = Q$ với mọi ma trận hoán vị $P$ cỡ $C\times C$.
+\end{menhde}
+
+\begin{proof}
+Bất biến hoán vị nghĩa là $Q_{\sigma(j)\sigma(k)} = Q_{jk}$ với mọi hoán vị
+$\sigma$. Cho hai vị trí ngoài đường chéo bất kì $(j,k)$ và $(j',k')$ với
+$j\ne k$, $j'\ne k'$, tồn tại một hoán vị đưa vị trí này sang vị trí kia, nên
+mọi phần tử ngoài đường chéo bằng nhau, giả sử bằng $q$. Tính row-stochastic
+với $C-1$ phần tử ngoài đường chéo mỗi hàng buộc $q = 1/(C-1)$. Ngược lại, ma
+trận đều rõ ràng bất biến.
+\end{proof}
+
+Một kẻ tấn công không biết lớp nào dễ lẫn với lớp nào thì không có căn cứ nào
+để phá vỡ tính đối xứng giữa các nhãn lớp; mọi $Q$ không đều đều ngầm khẳng
+định một tri thức riêng về lớp. Mệnh đề~\ref{md:hoanvi} nói rằng khi đó lựa
+chọn đều không phải là một sự đơn giản hóa mà là lựa chọn \emph{duy nhất chấp
+nhận được} --- cùng kiểu lập luận suy ra phân phối tiên nghiệm đều từ tính
+hoán vị được. Việc đếm bậc tự do cũng cho kết luận tương tự: hệ~\eqref{eq:hept}
+cho $C$ phương trình, trong khi các ẩn là $a$ cùng với $C(C-2)$ tham số tự do
+của $Q$; để định danh được mà không có thông tin phụ, phải triệt tiêu toàn bộ
+nhóm sau, và ma trận đều là lựa chọn duy nhất không có tham số tự do, tương
+đẳng với phép đổi tên lớp, và vẫn giữ hệ giải được ở dạng đóng.
+
+\subsection{Dạng đóng}
+
+\begin{dinhly}[Dạng đóng VLI$^*$]
+\label{dl:dangdong}
+Dưới Giả thiết~\ref{gt:doixung},
+\begin{equation}
+ G_j = \frac{n\bar\epsilon - C a_j}{C-1},
+ \qquad
+ G_{\max} = \frac{n\bar\epsilon}{C-1},
+ \qquad
+ \boxed{\;N_j = \frac{n}{C}\Bigl(1 - \frac{G_j}{G_{\max}}\Bigr)\;}
+ \label{eq:dangdong}
+\end{equation}
+và biểu thức cuối bất biến dưới $G \mapsto cG$ với $c>0$.
+\end{dinhly}
+
+\begin{proof}
+Dưới nhầm lẫn đều, $(Q^Ta)_j = \bigl(\sum_k a_k - a_j\bigr)/(C-1)$, nên
+theo~\eqref{eq:hept}
+\[
+ G_j = -a_j + \frac{\sum_k a_k - a_j}{C-1}
+     = \frac{\sum_k a_k - C a_j}{C-1} ,
+\]
+và $\sum_k a_k = n\bar\epsilon$ cho đẳng thức thứ nhất. Vì $a_j \ge 0$ và
+$G_j$ là hàm affine giảm nghiêm ngặt theo $a_j$ với \emph{cùng} độ dốc
+$-C/(C-1)$ cho mọi $j$, cực đại của $G$ đạt được đúng tại nơi $a_j = 0$, tức
+tại một lớp vắng mặt, cho $G_{\max} = n\bar\epsilon/(C-1)$;
+Giả thiết~\ref{gt:doixung} bảo đảm lớp như vậy tồn tại. Chia hai vế,
+\[
+ \frac{G_j}{G_{\max}} = 1 - \frac{C a_j}{n\bar\epsilon}
+ \quad\Longrightarrow\quad
+ a_j = \frac{n\bar\epsilon}{C}\Bigl(1 - \frac{G_j}{G_{\max}}\Bigr),
+\]
+và $r_j = 1$ cho $a_j = N_j\bar\epsilon$, nên $\bar\epsilon$ triệt tiêu và ta
+được~\eqref{eq:dangdong}. Một hệ số dương chung triệt tiêu trong tỉ số
+$G_j/G_{\max}$.
+\end{proof}
+
+Việc $\bar\epsilon$ triệt tiêu ở bước cuối chính là toàn bộ ý nghĩa. Vai trò
+của $G_{\max}$ là làm một \emph{nhiệt kế nằm trong cửa sổ} để đo
+$\bar\epsilon$: một lớp vắng mặt có $a_j = 0$, nên thành phần của nó đọc
+thang độ lỗi trực tiếp từ chính cập nhật bị tấn công. Ở chỗ RLU, ZLG$^+$ và
+LLG$^+$ so tín hiệu với một đại lượng đo từ dữ liệu phụ trợ --- và bị
+Định lý~\ref{dl:supdo} hoặc Mệnh đề~\ref{md:llgp} trừng phạt khi tín hiệu co
+nhỏ --- VLI$^*$ đọc thang độ từ bên trong cửa sổ.
+
+\begin{menhde}[Tính chất cấu trúc của~\eqref{eq:dangdong}]
+\label{md:tinhchat}
+Đặt $\mathrm{raw}_j = \tfrac{n}{C}(1 - G_j/G_{\max})$ với $G_{\max}>0$. Khi
+đó
+\begin{enumerate}
+\item $\mathrm{raw}_j \ge 0$ với mọi $j$, đẳng thức tại thành phần đạt cực
+  đại; \emph{không cần} phép cắt.
+\item $\sum_j \mathrm{raw}_j = n$, theo~\eqref{eq:tongkhong};
+  \emph{không cần} phép chuẩn hóa.
+\item Dưới Giả thiết~\ref{gt:doixung},
+  $\mathrm{raw}_j - \mathrm{raw}_k = N_j - N_k$ một cách chính xác.
+\end{enumerate}
+\end{menhde}
+
+\begin{proof}
+(i) $G_j \le G_{\max}$ và $G_{\max}>0$ cho $G_j/G_{\max} \le 1$.
+(ii) $\sum_j \mathrm{raw}_j = \tfrac{n}{C}\bigl(C - G_{\max}^{-1}\sum_j G_j\bigr) = n$.
+(iii) Từ Định lý~\ref{dl:dangdong},
+$G_k - G_j = C\bar\epsilon(N_j-N_k)/(C-1)$ và
+$G_{\max} = n\bar\epsilon/(C-1)$, nên
+$\mathrm{raw}_j - \mathrm{raw}_k = \tfrac{n}{C}\cdot\tfrac{G_k-G_j}{G_{\max}}
+ = \tfrac{n}{C}\cdot\tfrac{C(N_j-N_k)}{n} = N_j - N_k$.
+\end{proof}
+
+Hai ý (i) và (ii) loại bỏ đúng hai bước mà Mệnh đề~\ref{md:lipschitz} chỉ ra
+là bệnh lý trong RLU và ZLG$^+$. Ý (iii) xác định cách sửa đúng cho một ước
+lượng bị nhiễu: thông tin nhãn nằm trong \emph{hiệu} của $\mathrm{raw}$, nên
+phép sửa phải là phép \emph{cộng}. Phép chiếu Euclid lên $\simplex$ có đúng
+dạng đó,
+\[
+ \Pi_{\simplex}(y)_j = \max(y_j - \theta, 0),
+ \qquad \theta \text{ chọn sao cho } \textstyle\sum_j \max(y_j-\theta,0) = n,
+\]
+thu được từ điều kiện Karush--Kuhn--Tucker của
+$\min_{x\in\simplex}\tfrac12\|x-y\|^2$: nó trừ đi một ngưỡng duy nhất rồi
+cắt, bảo toàn hiệu giữa các thành phần còn sống. Theo
+Mệnh đề~\ref{md:lipschitz} nó còn không giãn. Một phép nhân lại thì bảo toàn
+tỉ lệ, và do đó là phép sửa \emph{sai} đối với số lượng.
+
+\subsection{Một điều kiện đủ yếu hơn Giả thiết~\ref{gt:doixung}}
+
+\begin{menhde}[Điều kiện đủ yếu hơn]
+\label{md:dieukienyeu}
+Giả sử $r_j = 1$ trên các lớp có mặt, có ít nhất một lớp vắng mặt, và khối
+lượng lỗi chảy vào thỏa
+\begin{equation}
+ (Q^Ta)_j = \frac{\sum_k a_k - a_j}{C-1} \qquad \text{với mọi } j .
+ \label{eq:luong}
+\end{equation}
+Khi đó~\eqref{eq:dangdong} đúng chính xác. Ma trận $Q$ đều
+kéo theo~\eqref{eq:luong}, nhưng~\eqref{eq:luong} \emph{yếu hơn hẳn}: nó ràng
+buộc vector $Q^Ta$ chứ không ràng buộc từng phần tử của $Q$.
+\end{menhde}
+
+\begin{proof}
+Thế~\eqref{eq:luong} vào $G = -a + Q^Ta$ ta thu lại đúng biểu thức của $G_j$
+trong Định lý~\ref{dl:dangdong}, từ đó phần còn lại của chứng minh đó áp dụng
+nguyên văn. Để thấy~\eqref{eq:luong} yếu hơn hẳn, lấy $Q$ đều rồi đổi tùy ý
+các hàng ứng với lớp vắng mặt: các hàng đó nhân với $a_j = 0$ nên $Q^Ta$ không
+đổi, trong khi $Q$ không còn đều.
+\end{proof}
+
+Một ví dụ ít tầm thường hơn: khi ba lớp có mặt $0,1,2$ có cùng khối lượng
+lỗi, cộng vào $Q$ đều một \emph{vòng luân chuyển} gồm $+\eta$ ở các vị trí
+$(0,1),(1,2),(2,0)$ và $-\eta$ ở $(0,2),(1,0),(2,1)$. Các hàng vẫn có tổng
+một, và vì ba lớp đó có cùng $a_j$ nên $Q^Ta$ không đổi;
+Mục~\ref{sec:kiemchung} kiểm chứng rằng dạng đóng vẫn khôi phục chính xác.
+
+Ngược lại, \eqref{eq:luong} là điều kiện \emph{đủ} chứ không \emph{cần}. Lấy
+$C=10$ với các lớp có mặt mang số lượng bằng nhau, và $Q$ gồm các cặp dễ lẫn
+$(0,1),(2,3),\ldots$, mỗi lớp gửi một tỉ lệ $s$ khối lượng lỗi sang lớp bạn
+của nó. Nếu hai lớp vắng mặt tạo thành một cặp nguyên vẹn thì $G$ chỉ nhận
+hai giá trị --- một cho mọi lớp có mặt, một cho mọi lớp vắng mặt --- và dạng
+đóng khôi phục chính xác với mọi $s$, \emph{dù}~\eqref{eq:luong} không được
+thỏa (phần dư tương đối $0{,}106$ khi $s=0{,}3$ và $0{,}441$ khi $s=0{,}9$).
+Ở đây sự chính xác đến từ mục tiêu suy biến (mọi lớp có mặt bằng nhau), chứ
+không từ~\eqref{eq:luong}. Cách đọc thực dụng: vùng chính xác của dạng đóng
+là một \emph{tập} chứa điểm ``$Q$ đều'', và phần dư của~\eqref{eq:luong} dự
+báo tốt mức lệch (Mục~\ref{sec:kiemchung}), nhưng không phải là biên chính
+xác của vùng đó.
+
+\subsection{Khi biết hình học: trần lý thuyết}
+
+\begin{giathiet}[Hình học lỗi đã biết và bất khả quy]
+\label{gt:hinhhoc}
+$Q$ đã biết, row-stochastic, không âm, đường chéo bằng không và bất khả quy;
+$r$ đã biết và dương nghiêm ngặt trên các lớp có mặt; có ít nhất một lớp vắng
+mặt; $\bar\epsilon>0$.
+\end{giathiet}
+
+\begin{dinhly}[Khôi phục khi biết $(r,Q)$]
+\label{dl:tongquat}
+Dưới Giả thiết~\ref{gt:hinhhoc}, gọi $v>0$ là vector Perron đã chuẩn hóa với
+$Q^Tv=v$, $\one^Tv=1$. Mọi nghiệm của~\eqref{eq:hept} đều có dạng
+$a = a_0 + tv$ với $a_0 = (I-Q^T)^{+}(-G)$, và các yêu cầu $a \ge 0$ cùng với
+sự tồn tại một lớp vắng mặt chọn ra
+\begin{equation}
+ t = \max_j\Bigl(-\frac{a_{0,j}}{v_j}\Bigr),
+ \qquad
+ \widehat N_j = n\,\frac{a_j/r_j}{\sum_k a_k/r_k}.
+ \label{eq:tongquat}
+\end{equation}
+Với $G$, $r$, $Q$ chính xác, \eqref{eq:tongquat} bằng đúng số lượng thật.
+\end{dinhly}
+
+\begin{proof}
+Vì $Q$ row-stochastic và bất khả quy, $\ker(I-Q) = \mathrm{span}\{\one\}$,
+nên $\mathrm{range}(I-Q^T) = \one^\perp$; theo~\eqref{eq:tongkhong} ta có
+$-G \in \one^\perp$, nên hệ~\eqref{eq:hept} có nghiệm và $a_0$ là một nghiệm.
+Theo lý thuyết Perron--Frobenius, không gian hạch của $I-Q^T$ có chiều một,
+sinh bởi một $v$ dương nghiêm ngặt, nên mọi nghiệm sai khác nhau một lượng
+$tv$. Các ràng buộc $a_{0,j}+tv_j\ge0$
+tương đương $t \ge \max_j(-a_{0,j}/v_j)$, và tại $t$ khả thi nhỏ nhất thì ít
+nhất một thành phần bằng không. Nghiệm $a$ thật là không âm và có một thành
+phần bằng không vì có lớp vắng mặt, nên nó phải là nghiệm biên này. Với các
+lớp có mặt, $a_j = N_jr_j\bar\epsilon$, do đó $a_j/r_j = N_j\bar\epsilon$, và
+chuẩn hóa các giá trị này về tổng $n$ cho đúng số lượng. Các lớp vắng mặt
+đóng góp bằng không, bất kể giá trị dương nào được dùng thế cho $r_j$ của
+chúng.
+\end{proof}
+
+\begin{hequa}[Biên khi độ khó bị gán sai]
+\label{hq:kappa}
+Giả sử $Q$ đã biết và nghiệm biên $a$ chính xác, nhưng ước lượng thay bằng
+$r_j \equiv 1$. Với $\kappa = r_{\max}/r_{\min}$ trên các lớp có mặt, tỉ lệ
+khôi phục theo mẫu $\sum_j \min(\widehat\pi_j, \pi_j)$ ít nhất bằng
+$1/\kappa$.
+\end{hequa}
+
+\begin{proof}
+Ước lượng là $q_j = a_j/A$ với $A=\sum_k a_k$, còn tỉ lệ thật là
+$\pi_j = (a_j/r_j)/Z$ với $Z = \sum_k a_k/r_k$. Do đó
+$q_j/\pi_j = r_j Z/A$, và $Z/A$ là trung bình có trọng của các $1/r_k$, nên
+$Z/A \ge 1/r_{\max}$. Vậy $q_j \ge \pi_j/\kappa$, suy ra
+$\min(q_j,\pi_j) \ge \pi_j/\kappa$; cộng lại ta được điều phải chứng minh.
+\end{proof}
+
+Định lý~\ref{dl:tongquat} \emph{không} phải một tấn công: $r$ và $Q$ là đầu
+vào oracle. Vai trò của nó là cung cấp một trần lý thuyết để đo
+Định lý~\ref{dl:dangdong}, với Hệ quả~\ref{hq:kappa} chặn khoảng cách giữa
+hai bên. Ba kết quả hợp thành một thang bậc: dạng đóng là ước lượng triển
+khai được, dạng tổng quát là trần, và hệ quả xác nhận rằng khoảng cách giữa
+chúng suy giảm \emph{có kiểm soát} chứ không sụp đổ.
+
+% ============================================================================
+\begin{landscape}
+\section{Bảng tóm tắt}
+\label{sec:bang}
+
+\footnotesize
+\noindent
+\begin{tabular}{@{}l l l p{3.8cm} l p{3.8cm} c@{}}
+\toprule
+\textbf{Phương pháp} & \textbf{Tín hiệu} & \textbf{Vay từ aux} &
+\textbf{Cơ chế suy giảm} & \textbf{Căn cứ} &
+\textbf{Kết cục khi $\bar\epsilon_{\mathrm{tr}}\to0$} & \textbf{Bất biến} \\
+\midrule
+iLRG & $\nabla W_j/\nabla b_j$ & không &
+Chia cho mẫu số tiêu biến; hệ giả nghịch đảo suy biến &
+Bổ đề~\ref{bd:dongnhat} &
+Nhiễu số học (phải chặn số mũ thủ công) & --- \\
+
+LLG & $\sum_d \Delta W$ & không &
+Không có. Nhưng giả định $r_j\equiv1$, $Q$ đều, và nhân thô $\times m$ &
+--- & Vẫn hoạt động & Có \\
+
+LLG$^+$ & $\sum_d \Delta W$ & offset, impact &
+Chỉ mẫu dấu $h_1$ còn lại; phần còn lại đóng băng theo offset &
+MĐ~\ref{md:llgp} (+ MĐ~\ref{md:khoangcach}) &
+Hàm của $h_1$: $\le C$ bit; mô phỏng chỉ $4$ đầu ra, irec dưới dự đoán đều & Một phần \\
+
+ZLG$^+$ & $\sum_d \Delta W$ & $\bar p$, $\bar O$ &
+$\widehat N\propto[n\bar p-\tilde G]_+$: khi $\tilde G\to0$ chỉ còn $\bar p$ &
+ĐL~\ref{dl:supdo}, HQ~\ref{hq:apdung} &
+$n\bar p/\|\bar p\|_1\approx$ phân phối đều. Chồng lấp $0{,}54$ ($\alpha{=}0{,}5$); $0{,}29$ ($\alpha{=}0{,}1$) & Không \\
+
+RLU & $\Delta b$, $\Delta W$ & $\mathrm{shift}$ &
+Ba lỗi cộng dồn: sụp đổ phụ trợ; Jensen $e^{\sigma^2/2}$; cắt + chuẩn hóa nhân &
+ĐL~\ref{dl:supdo}, HQ~\ref{hq:apdung}, MĐ~\ref{md:jensen},~\ref{md:lipschitz} &
+$n\cdot\text{normalize}(\mathrm{shift})$ (lần gọi đầu), độc lập hoàn toàn với nhãn & Không \\
+\midrule
+VLI (gốc) & $\Delta b$ hoặc $\sum_d\Delta W$ & không &
+$f_2,f_3$ \emph{phụ thuộc độ lớn} $G$ & --- &
+Xấp xỉ đúng, nhưng 5 siêu tham số phải dò lại & Gần \\
+
+\textbf{VLI}$^*$ \textbf{dạng đóng} & $\Delta b$ & \textbf{không} &
+Giả thiết $Q$ đều (MĐ~\ref{md:hoanvi}: lựa chọn \emph{duy nhất}); cần $\ge1$ lớp vắng mặt &
+ĐL~\ref{dl:dangdong} &
+\textbf{Không đổi.} $\bar\epsilon$ giảm 7 bậc, kết quả y nguyên & \textbf{Có} \\
+
+VLI$^*$ tổng quát & $\Delta b$ & chỉ $(r,Q)$ \emph{đã chuẩn hóa} &
+$(r,Q)$ hiện là oracle & ĐL~\ref{dl:tongquat}, HQ~\ref{hq:kappa} &
+\textbf{Không đổi} (trần lý thuyết) & Có \\
+\bottomrule
+\end{tabular}
+
+\vspace{1.4em}
+\noindent\normalsize\textbf{Vì sao chỉ VLI$^*$ thoát được}
+
+\vspace{0.5em}
+\footnotesize
+\noindent
+\begin{tabular}{@{}p{4.6cm} p{3.6cm} p{12.4cm}@{}}
+\toprule
+\textbf{Rào cản} & \textbf{Chặn ai} & \textbf{VLI$^*$ vượt bằng cách nào} \\
+\midrule
+\textbf{Bổ đề~\ref{bd:chuan}:} $\|G\|_1\le 2nL_{\text{tr}}$ --- toàn bộ tín hiệu co về 0 &
+Mọi phương pháp &
+Chỉ dùng \emph{tỉ số} $G_j/G_{\max}$; nhân $G$ với hằng số nào cũng không đổi kết quả (MĐ~\ref{md:batbien}) \\
+
+\textbf{ĐL~\ref{dl:supdo}:} $\widehat\pi\to\Phi(c)$, vector độc lập với nhãn &
+ZLG$^+$, RLU &
+Không tồn tại $c$ ngoài. Thang độ $\bar\epsilon$ được đọc từ $G_{\max}$ --- nhiệt kế nằm ngay trong cửa sổ \\
+
+\textbf{MĐ~\ref{md:khoangcach}:} $\tau_{\text{err}}/\bar\epsilon_{\text{tr}}\to\infty$ (điều kiện đủ) &
+LLG$^+$ (ZLG$^+$/RLU không cần) &
+Không tham chiếu độ lớn nào từ aux. Riêng $(r,Q)$ tùy chọn đều \emph{vô đơn vị}: $\bar\epsilon$ triệt tiêu theo định nghĩa \\
+
+\textbf{MĐ~\ref{md:llgp}:} đầu ra chỉ còn là hàm của mẫu dấu &
+LLG$^+$ &
+Không có pha tham lam hay offset; một biểu thức đóng đọc toàn bộ tín hiệu theo tỉ số \\
+
+\textbf{MĐ~\ref{md:jensen}:} Jensen $e^{\sigma^2/2}$, lớn nhất đúng lúc tín hiệu yếu nhất &
+RLU & Không lấy softmax của logit trung bình \\
+
+\textbf{MĐ~\ref{md:lipschitz}:} cắt + chia-cho-tổng không Lipschitz (đo được $44\,437\times$) &
+RLU, ZLG$^+$ &
+Không cần cắt ($\mathrm{raw}\ge0$ tự động) và không cần chuẩn hóa ($\sum\mathrm{raw}=n$ miễn phí, do~\eqref{eq:tongkhong}). Phép chiếu simplex phòng vệ là \emph{cộng} và không giãn \\
+
+Mẫu số $\nabla b\to0$ & iLRG & Gradient bias không bao giờ dùng làm số chia \\
+
+Siêu tham số dò tay & VLI gốc &
+$\mathrm{boost}^\star=(C-1)G_{\max}/\sum_j\pos{-G_j}$ được \emph{suy ra}, thay cả 5 hằng số \\
+\bottomrule
+\end{tabular}
+
+\vspace{1.4em}
+\noindent\normalsize\textbf{Sự đánh đổi --- luận điểm trung tâm}
+
+\vspace{0.5em}
+\footnotesize
+\noindent
+\begin{tabular}{@{}l p{6.0cm} p{3.8cm} p{7.8cm}@{}}
+\toprule
+ & \textbf{Mô hình hình học lỗi} & \textbf{Thang độ} & \textbf{Kết cục khi $\bar\epsilon\to0$} \\
+\midrule
+RLU, ZLG$^+$, LLG$^+$ &
+\emph{Tốt hơn} --- đo $\bar p$, offset, $\mu$ thật từ dữ liệu &
+\emph{Phụ thuộc} một độ lớn đo trên phụ trợ &
+Sụp về vector độc lập nhãn (ĐL~\ref{dl:supdo}); LLG$^+$ còn $\le C$ bit (MĐ~\ref{md:llgp}) \\
+VLI$^*$ &
+\emph{Thô hơn} --- giả thiết $Q$ đều, $r_j\equiv1$ &
+\emph{Bất biến} &
+Sai số \emph{có biên}: $0{,}53$--$1{,}00$ tùy chế độ (HQ~\ref{hq:kappa}, MĐ~\ref{md:dieukienyeu}) \\
+\bottomrule
+\end{tabular}
+\end{landscape}
+
+\noindent
+Luận điểm \emph{không} phải ``$Q$ đều là đúng''. Luận điểm là:
+\begin{quote}
+một mô hình \textbf{sai nhưng bất biến thang độ} thắng một mô hình
+\textbf{tốt hơn nhưng phụ thuộc thang độ}, vì sai số hình học là
+\emph{có biên} (Hệ quả~\ref{hq:kappa}, Mệnh đề~\ref{md:dieukienyeu}) còn sụp
+đổ thang độ là \emph{toàn phần} (Định lý~\ref{dl:supdo}).
+\end{quote}
+Đây đúng là cấu trúc lập luận giải thích Naive Bayes: giả thiết độc lập có
+điều kiện gần như luôn bị vi phạm, nhưng bộ phân lớp vẫn tốt vì quy tắc quyết
+định chỉ phụ thuộc một \emph{thứ tự}, không phụ thuộc xác suất được hiệu
+chuẩn. Ở đây, theo Mệnh đề~\ref{md:tinhchat}(iii), ước lượng chỉ phụ thuộc
+\emph{hiệu} của $\mathrm{raw}$, nên một $Q$ sai là vô hại miễn quan hệ affine
+giữa $G$ và $N$ được bảo toàn.
+
+% ============================================================================
+\section{Kiểm chứng số}
+\label{sec:kiemchung}
+
+\paragraph{Các bảng này là gì.}
+Mọi con số dưới đây được tính trên mô hình sinh do Bổ đề~\ref{bd:dongnhat}
+hàm ý: cho trước số lượng $N$, vector độ khó $r$, ma trận nhầm lẫn $Q$ và một
+thang độ $\bar\epsilon$, ta lập $a_j = N_jr_j\bar\epsilon$, đặt
+$G = -(I-Q^T)a$ chính xác, rồi truyền $G$ vào cài đặt. Vì vậy chúng kiểm
+chứng phần đại số của Định lý~\ref{dl:dangdong} và~\ref{dl:tongquat}, và đo
+độ nhạy khi Giả thiết~\ref{gt:doixung} bị vi phạm một cách có kiểm soát.
+\textbf{Chúng không phải thí nghiệm trên một mạng đã huấn luyện} và không
+được đọc như vậy; một nghiên cứu thực nghiệm cần các checkpoint ở nhiều mức
+độ chính xác và là công việc tiếp theo (Mục~\ref{sec:gioihan}). Với các
+phương pháp cơ sở, mô phỏng bám đúng phép chia tỉ lệ của mã nguồn: ZLG$^+$
+nhận $v = n\bar p - \tilde G$ (với mọi $w_i = 1$), còn LLG$^+$ nhận tín hiệu
+$G/n$, với $\mathrm{offset}_j \approx \bar\epsilon_{\mathrm{aux}}/(C-1)$ và
+$\mathrm{impact} = -\bar\epsilon_{\mathrm{aux}}(1+1/C)/B < 0$ như trong mã
+nguồn, lấy $\bar\epsilon_{\mathrm{aux}} = 0{,}25$.
+
+\paragraph{Tính chính xác và bất biến thang độ.}
+Với $C=4$, $N=(6,4,2,0)$, $Q$ đều, $r\equiv1$, số lượng khôi phục là
+$(6,4,2,0)$ chính xác, và vẫn như vậy khi $\bar\epsilon$ --- do đó toàn bộ
+tín hiệu --- bị đẩy về không qua bảy bậc độ lớn, xác nhận
+Mệnh đề~\ref{md:batbien}.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+$\bar\epsilon$ & $\|G\|_1$ & Số lượng khôi phục \\
+\midrule
+$5\times10^{-1}$ & $5{,}33\times10^{0}$  & $(6,4,2,0)$ \\
+$1\times10^{-1}$ & $1{,}07\times10^{0}$  & $(6,4,2,0)$ \\
+$1\times10^{-3}$ & $1{,}07\times10^{-2}$ & $(6,4,2,0)$ \\
+$1\times10^{-8}$ & $1{,}07\times10^{-7}$ & $(6,4,2,0)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Mệnh đề~\ref{md:lipschitz} đo được.}
+Đẩy $\delta \to 0$ dọc theo họ điểm trong chứng minh và đo đạo hàm theo hướng
+của $R$, đối chiếu với công thức $4n/(9\delta)$ ($n = 400$):
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+$\delta$ & tỉ số $L_1$ đo được & $4n/(9\delta)$ \\
+\midrule
+$10^{-1}$ & $1\,778$ & $1\,778$ \\
+$10^{-3}$ & $177\,806$ & $177\,778$ \\
+$10^{-5}$ & $17\,783\,464$ & $17\,777\,778$ \\
+$10^{-7}$ & $1\,777\,777\,925$ & $1\,777\,777\,778$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Khớp tới ba chữ số có nghĩa trên bốn bậc độ lớn, và phân kỳ như $1/\delta$.
+Đối chiếu, trên $3\times10^5$ cặp điểm ngẫu nhiên, hệ số lớn nhất của
+$\Pi_{\simplex}$ đo được là $1{,}0000$ trong chuẩn $L_2$ và $1{,}3087$ trong
+chuẩn $L_1$ --- cả hai đều dưới biên lý thuyết ($1$ và $\sqrt{C}=3{,}162$).
+Đây là lí do Nhận xét~\ref{nx:khongtrichso} từ chối trích một con số đơn lẻ
+cho $R$.
+
+\paragraph{Độ nhạy nhãn: cả ZLG$^+$ lẫn LLG$^+$ đều sụp.}
+Để tách ``sụp đổ'' khỏi ``suy giảm'', ta cho \emph{hai} vector nhãn khác nhau
+tối đa, $N_1=(200,120,41,19,10,5,5,0,0,0)$ và $N_2$ là $N_1$ đảo ngược, với
+$\|N_1-N_2\|_1/n = 1{,}900$, rồi đo đầu ra lệch nhau bao nhiêu. Nếu đại lượng
+đó $\to 0$ thì ước lượng đã \emph{mù nhãn}: đổi toàn bộ nhãn cũng cho cùng
+đáp án. (Ta tránh $N_j = n/C$ đúng, vì khi đó $G_j = 0$ và dấu của nó --- tức
+$h_1$ --- do nhiễu dấu phẩy động quyết định; đây chính là mép trong
+Mệnh đề~\ref{md:llgp}(i).)
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+& \multicolumn{3}{c}{LLG$^+$} & \multicolumn{2}{c}{ZLG$^+$} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-6}
+$\bar\epsilon_{\mathrm{tr}}$ & $\|o_1-o_2\|_1/n$ & cAcc & irec
+ & $\|o_1-o_2\|_1/n$ & irec \\
+\midrule
+$10^{-1}$ & $0{,}700$ & $0{,}50$ & $0{,}388$ & $0{,}040$ & $0{,}405$ \\
+$10^{-2}$ & $0{,}050$ & $0{,}60$ & $0{,}200$ & $0{,}000$ & $0{,}398$ \\
+$10^{-3}$ & $0{,}050$ & $0{,}60$ & $0{,}200$ & $0{,}000$ & $0{,}398$ \\
+$10^{-4}$ & $0{,}050$ & $0{,}60$ & $0{,}200$ & $0{,}000$ & $0{,}398$ \\
+$10^{-6}$ & $0{,}050$ & $0{,}60$ & $0{,}200$ & $0{,}000$ & $0{,}398$ \\
+$10^{-8}$ & $\mathbf{0{,}050}$ & $0{,}60$ & $\mathbf{0{,}200}$ & $\mathbf{0{,}000}$ & $\mathbf{0{,}398}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Hai kết luận. (a) ZLG$^+$ mất hoàn toàn độ nhạy nhãn, và irec của nó dừng ở
+$0{,}398$ --- \emph{đúng bằng} $\sum_j\min(n/C, N_{1,j})/n = 159/400$, tức
+giá trị của việc dự đoán phân phối đều, đúng như Hệ quả~\ref{hq:apdung}.
+(b) LLG$^+$ \emph{cũng} gần như mù nhãn: hai bộ nhãn đối nghịch chỉ khác nhau
+ở $h_1$ --- $\{0,1,2\}$ so với $\{7,8,9\}$ --- và điều đó chỉ đổi $2$ trong
+$40$ suất, tức $\|o_1-o_2\|_1/n = 0{,}05$. Đầu ra khớp $F(h_1)$ của
+Mệnh đề~\ref{md:llgp} trong $500/500$ trường hợp ngẫu nhiên, và trên $3000$
+vector nhãn ngẫu nhiên chỉ có $4$ đầu ra khác nhau. Vì phần lớn suất được
+phân theo offset chứ không theo nhãn, irec của LLG$^+$ ($0{,}200$) còn
+\emph{thấp hơn} dự đoán đều ($0{,}398$).
+
+\paragraph{Biên lượng tử hóa của Hệ quả~\ref{hq:apdung}(ii).}
+Cùng cấu hình ZLG$^+$, nhưng đo trực tiếp
+$\|\widehat N - R(c)\|_1$ trên $4000$ vector nhãn ngẫu nhiên
+mỗi mức $\bar\epsilon$ (Dirichlet với $\alpha \in \{0{,}1;\,0{,}4;\,1;\,5\}$).
+Ta lấy $\bar p_j = 0{,}7512$ để $c_j = 300{,}48$ nằm xa mép của \texttt{int};
+cột ``trên mép'' dùng $\bar p$ được dựng cố ý sao cho $R(c)_0 = 40{,}5$ nằm
+đúng trên mép của \texttt{round}.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+$\bar\epsilon_{\mathrm{tr}}$ & $L_\Phi\beta\|\Gamma\|_1$ & biên~\eqref{eq:bienluongtu}
+ & $\|\widehat N - R(c)\|_1$ ngoài mép & trên mép \\
+\midrule
+$10^{-2}$ & $2{,}130$ & $9{,}792$ & $\mathbf{0}$ & $\mathbf{1}$ \\
+$10^{-3}$ & $0{,}213$ & $7{,}875$ & $\mathbf{0}$ & $\mathbf{1}$ \\
+$10^{-4}$ & $0{,}021$ & $7{,}684$ & $\mathbf{0}$ & $\mathbf{1}$ \\
+$10^{-6}$ & $0{,}000$ & $7{,}663$ & $\mathbf{0}$ & $\mathbf{1}$ \\
+$10^{-8}$ & $0{,}000$ & $7{,}662$ & $\mathbf{0}$ & $\mathbf{1}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ở đây $\delta = n\sum_j \bar p_j \approx 3005$, nên $L_\Phi = 2n/\delta
+\approx 0{,}266$ và $\gamma_{\mathcal{Q}}C = (L_\Phi+\tfrac12)C \approx
+7{,}66$. Biên không bị vượt, và thực tế còn lỏng hơn nhiều: $0$ khi $R(c)$
+nằm ngoài mép (đóng băng chính xác như Nhận xét~\ref{nx:dongbang} tiên đoán),
+và đúng \emph{một} count khi nằm trên mép --- tức $1/400 = 0{,}25\%$. Ngưỡng
+đủ của Nhận xét~\ref{nx:dongbang} là
+$\bar\epsilon_0 = \rho/(2\beta nL_\Phi) \approx 2{,}3\times10^{-3}$, trong khi
+mô phỏng đã đóng băng từ $10^{-2}$: ngưỡng đó bảo thủ. Trên $\mathrm{irec}$,
+\eqref{eq:bienirec} cho biên $1{,}92\%$ còn độ lệch quan sát được là $0$ hoặc
+$0{,}25\%$.
+
+\paragraph{Đối chứng cho Mệnh đề~\ref{md:conthongtin}: thông tin vẫn còn.}
+Cùng cấu hình ZLG$^+$ và cùng nhãn thật $N_1$ như trên.
+Cột cuối lấy $e = R(v)-R(c)$ --- một đại lượng kẻ tấn công \emph{tính được},
+vì $c$ do chính họ đo --- rồi đọc $-e$ bằng dạng đóng không thang độ
+\eqref{eq:dangdong} thay vì bằng quy tắc của ZLG$^+$.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+$\bar\epsilon_{\mathrm{tr}}$ & $\|e\|_\infty$ & irec của ZLG$^+$
+ & irec khi đọc $-e$ theo tỉ số \\
+\midrule
+$10^{-2}$ & $2{,}37\times10^{-1}$ & $0{,}398$ & $\mathbf{1{,}000}$ \\
+$10^{-4}$ & $2{,}37\times10^{-3}$ & $0{,}398$ & $\mathbf{1{,}000}$ \\
+$10^{-6}$ & $2{,}37\times10^{-5}$ & $0{,}398$ & $\mathbf{1{,}000}$ \\
+$10^{-8}$ & $2{,}37\times10^{-7}$ & $0{,}398$ & $\mathbf{1{,}000}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Hai cách đọc \emph{cùng một} $R(v)$: quy tắc của ZLG$^+$ cho $0{,}398$ ---
+đúng giá trị của dự đoán đều --- còn phép đọc theo tỉ số khôi phục
+\emph{chính xác tuyệt đối}, đúng như Mệnh đề~\ref{md:conthongtin} dự đoán
+($-e$ tỉ lệ với $\Gamma$). Vậy việc tín hiệu co nhỏ \emph{không} xoá thông
+tin; nó chỉ làm thông tin trở nên nhỏ, và chính thiết kế phụ thuộc thang độ
+mới đánh mất nó (Mục~\ref{sec:tuongtac}).
+
+\paragraph{Hình dạng so với độ lớn: $Q$ chuyển giao, nhưng không cố định.}
+Dùng mô hình logit $z = s\cdot\mathrm{diff}[y]\cdot M[y] + \sigma\varepsilon$,
+với train $\sigma=1{,}0$ và phụ trợ $\sigma=2{,}5$. Tăng $s$ mô phỏng mô hình
+tốt dần. Cột ``$Q$ trôi'' so $Q(s)$ với $Q(s{=}1)$ (\emph{qua thời gian});
+hai cột cuối so phụ trợ với train \emph{tại cùng một $s$}.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+$s$ & $\bar\epsilon_{\mathrm{tr}}$ & $Q$ trôi theo $s$ & độ tập trung $Q$
+ & $Q$ lệch aux/train & offset lệch aux/train \\
+\midrule
+$1{,}0$ & $7{,}9\times10^{-1}$ & $0{,}000$ & $0{,}142$ & $0{,}094$ & $0{,}1$ \\
+$2{,}0$ & $6{,}3\times10^{-1}$ & $0{,}165$ & $0{,}178$ & $0{,}149$ & $0{,}2$ \\
+$3{,}0$ & $4{,}4\times10^{-1}$ & $0{,}332$ & $0{,}219$ & $0{,}215$ & $0{,}5$ \\
+$4{,}0$ & $2{,}8\times10^{-1}$ & $0{,}608$ & $0{,}285$ & $0{,}292$ & $0{,}9$ \\
+$6{,}0$ & $9{,}7\times10^{-2}$ & $1{,}130$ & $0{,}411$ & $0{,}350$ & $2{,}3$ \\
+$8{,}0$ & $3{,}3\times10^{-2}$ & $\mathbf{1{,}515}$ & $\mathbf{0{,}510}$ & $\mathbf{0{,}302}$ & $\mathbf{3{,}5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Ba điều cần đọc đúng. (a) $Q$ \emph{không} cố định qua huấn luyện: nó trôi
+$151\%$. Tính bất biến ở Mục~\ref{sec:kihieu} là bất biến \emph{đối với một
+hệ số chung}, không phải tính ổn định theo thời gian. (b) Nhưng cái mà tấn
+công cần là cột ``$Q$ lệch aux/train'', và nó \emph{bão hòa} quanh $0{,}30$,
+trong khi ``offset lệch'' \emph{phân kỳ} tới $3{,}5$ ($350\%$) và chưa dừng.
+Đây là khác biệt về bản chất, và là bằng chứng cho giả thuyết ở
+Mục~\ref{sec:gioihan}. (c) Cột ``độ tập trung'' (trung bình của
+$\max_k Q_{jk}$; giá trị đều là $1/(C-1)\approx0{,}111$) tăng từ $0{,}142$
+lên $0{,}510$: \emph{càng huấn luyện, $Q$ càng rời xa ma trận đều}. Đối chiếu
+bảng nhầm lẫn có cấu trúc dưới đây, $0{,}510$ ứng với mức irec khoảng
+$0{,}88$. Đây là một giới hạn, nêu ở Mục~\ref{sec:gioihan}.
+
+\paragraph{Nhầm lẫn có cấu trúc.}
+$C=10$, $N=(120,90,70,50,30,20,10,5,0,0)$, $r\equiv1$, và $Q$ dựng từ các cặp
+dễ lẫn với cường độ $s$ (giá trị $s=1/(C-1)\approx0{,}111$ là trường hợp
+đều). Đây là vi phạm đáng lo nhất, vì mô hình thực luôn lẫn các cặp cụ thể.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lr@{}}
+\toprule
+Cường độ cặp $s$ & Khôi phục theo mẫu \\
+\midrule
+$0{,}111$ (đều) & $1{,}000$ \\
+$0{,}200$ & $0{,}982$ \\
+$0{,}300$ & $0{,}962$ \\
+$0{,}500$ & $0{,}884$ \\
+$0{,}700$ & $0{,}734$ \\
+$0{,}900$ & $0{,}638$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Chính xác bên trong và bên ngoài điều kiện~\eqref{eq:luong}.}
+Trước hết, ví dụ vòng luân chuyển của Mệnh đề~\ref{md:dieukienyeu} (tám lớp
+có mặt, mỗi lớp $70$ mẫu, $\eta = 0{,}05$) cho một $Q$ không đều nhưng thỏa
+\eqref{eq:luong}, và dạng đóng khôi phục đúng $(70,\ldots,70,0,0)$. Thứ hai,
+với $Q$ cấu trúc cặp, các lớp có mặt mang số lượng bằng nhau và hai lớp vắng
+mặt tạo thành một cặp nguyên vẹn, dạng đóng cũng khôi phục chính xác với mọi
+cường độ đã thử --- dù ở đây \eqref{eq:luong} \emph{không} được thỏa. Dòng đầu
+bảng dưới đây là trường hợp đó; nó cho thấy \eqref{eq:luong} là đủ chứ không
+cần. Ba dòng sau phá sự đối xứng của mục tiêu và cho thấy mức lệch quay lại.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Cấu hình & $s=0{,}3$ & $s=0{,}9$ \\
+\midrule
+Có mặt cân bằng, cặp vắng mặt nguyên vẹn & $1{,}000$ & $1{,}000$ \\
+Có mặt cân bằng, cặp bị chia giữa có mặt/vắng mặt & $0{,}964$ & $0{,}864$ \\
+Mất cân bằng nhẹ, cặp nguyên vẹn & $0{,}985$ & $0{,}667$ \\
+Mất cân bằng mạnh, cặp nguyên vẹn & $0{,}940$ & $0{,}530$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Phần dư của~\eqref{eq:luong} tiên đoán mức mất mát.}
+Trên $400$ cấu hình ngẫu nhiên (thay đổi $N$, số lớp có mặt, và
+$Q \in \{\text{đều}, \text{cặp}, \text{vòng}\}$), đặt
+$\mathrm{defect} = \|Q^Ta - (\one^Ta\,\one - a)/(C-1)\|_2/\|a\|_2$. Tương
+quan giữa defect và khôi phục là $-0{,}873$, và defect bằng không cho kết quả
+chính xác trong \emph{toàn bộ} $138$ trường hợp xuất hiện, phù hợp với tính
+\emph{đủ} của Mệnh đề~\ref{md:dieukienyeu}.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Khoảng defect & Số cấu hình & Khôi phục trung bình \\
+\midrule
+$0$ (chính xác) & $138$ & $1{,}000$ \\
+$(0;\,0{,}05)$  & $17$  & $0{,}958$ \\
+$[0{,}05;\,0{,}1)$ & $39$ & $0{,}917$ \\
+$[0{,}1;\,0{,}3)$ & $65$  & $0{,}832$ \\
+$[0{,}3;\,\infty)$ & $141$ & $0{,}716$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Độ phân tán độ khó, đối chiếu Hệ quả~\ref{hq:kappa}.}
+$Q$ đều, $r$ phân tán tuyến tính, ước lượng dùng $r\equiv1$. Biên của hệ quả
+là đúng nhưng rất lỏng; suy giảm thực tế mượt hơn nhiều bậc.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+$\kappa$ & Khôi phục theo mẫu & Biên $1/\kappa$ \\
+\midrule
+$1{,}00$  & $1{,}000$ & $1{,}000$ \\
+$1{,}39$  & $0{,}965$ & $0{,}720$ \\
+$1{,}78$  & $0{,}934$ & $0{,}562$ \\
+$3{,}33$  & $0{,}853$ & $0{,}300$ \\
+$8{,}00$  & $0{,}744$ & $0{,}125$ \\
+$39{,}11$ & $0{,}635$ & $0{,}026$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Nhiễu động trên cái mốc.}
+Nhiễu Gauss với độ lệch chuẩn $\sigma\cdot\|G\|_\infty$ cộng vào $G$, lặp
+$2000$ lần. Cột cuối cho biết nhiễu đẩy $\argmaxop_j G_j$ sang một lớp
+\emph{có mặt} bao nhiêu phần trăm thời gian --- điều phá hủy cách hiểu
+$G_{\max}$ như một nhiệt kế.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+$\sigma$ & Khôi phục theo mẫu & Mốc rơi vào lớp có mặt \\
+\midrule
+$0\%$  & $1{,}000$ & $0{,}0\%$ \\
+$1\%$  & $0{,}991$ & $0{,}0\%$ \\
+$5\%$  & $0{,}954$ & $8{,}6\%$ \\
+$10\%$ & $0{,}914$ & $22{,}6\%$ \\
+$25\%$ & $0{,}820$ & $44{,}0\%$ \\
+$50\%$ & $0{,}722$ & $53{,}4\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Yêu cầu về lớp vắng mặt.}
+Khi không có lớp nào vắng mặt, công thức bị buộc phải gán không cho thành
+phần $\argmaxop$ của nó, nên lớp có mặt nhỏ nhất bị hy sinh. Thiệt hại do đó
+tỉ lệ với \emph{tỉ trọng} của lớp đó trong $n$, chứ không tỉ lệ với bản thân
+việc vắng mặt: với cấu hình $C=10$ đuôi dài ở trên, loại bỏ hoàn toàn các lớp
+vắng mặt vẫn cho $0{,}975$, trong khi một cửa sổ nhỏ và gần cân bằng thì
+thiệt hại nhiều hơn đáng kể. Một cửa sổ cân bằng hoàn hảo dưới
+Giả thiết~\ref{gt:doixung} cho $G \equiv 0$, và cài đặt từ chối trả lời thay
+vì bịa ra một đáp án.
+
+% ============================================================================
+\section{Giới hạn và các nguy cơ đối với tính hợp lệ}
+\label{sec:gioihan}
+
+\begin{enumerate}
+\item \textbf{$(r,Q)$ là đầu vào oracle.} Định lý~\ref{dl:tongquat} giả định
+  đã biết chúng. Việc $\bar\epsilon$ triệt tiêu khỏi cả hai theo cách xây
+  dựng (Mục~\ref{sec:kihieu}) là một lí do để kì vọng chúng chuyển giao từ
+  dữ liệu phụ trợ sang dữ liệu huấn luyện tốt hơn các độ lớn tuyệt đối mà
+  các phương pháp cũ dùng, nhưng đây là một \emph{giả thuyết có cơ sở, không
+  phải một định lý}, và phải được đo. Khoảng cách từ $0{,}638$ tới $1{,}000$
+  trong bảng nhầm lẫn có cấu trúc chính là giá trị định lượng của việc giải
+  được vấn đề này.
+
+\item \textbf{$\kappa$ nở ra theo độ huấn luyện.} Vì
+  $r_j = \bar\epsilon_j/\bar\epsilon$ là một tỉ số, $\bar\epsilon$ triệt
+  tiêu, nhưng \emph{độ phân tán} của $r$ thì không nhất thiết ổn định: các
+  lớp dễ có thể đạt $\bar\epsilon_j\approx10^{-6}$ trong khi các lớp khó vẫn
+  ở $10^{-2}$, cho $\kappa \approx 10^4$, ở nơi một mô hình chưa huấn luyện
+  đủ chỉ có $\kappa \approx 2$. Vậy chế độ mà VLI$^*$ thắng cũng chính là chế
+  độ mà Giả thiết~\ref{gt:doixung} kém chính xác nhất. Đây là \emph{tension}
+  trung tâm của hướng tiếp cận và phải được báo cáo, không được che; nó đo
+  được trực tiếp từ các checkpoint có độ chính xác tăng dần.
+
+\item \textbf{$Q$ tập trung dần, cũng theo độ huấn luyện.} Đây là một kênh
+  \emph{thứ hai, độc lập} với $\kappa$, ăn vào cùng một chỗ. Số liệu ở
+  Mục~\ref{sec:kiemchung} cho độ tập trung của $Q$ (trung bình
+  $\max_k Q_{jk}$) tăng từ $0{,}142$ lên $0{,}510$ khi mô hình tốt dần, trong
+  khi giá trị của ma trận đều là $1/(C-1)\approx0{,}111$. Nói cách khác, mô
+  hình well-trained chỉ còn lẫn các cặp \emph{thật sự} khó, nên một nửa khối
+  lượng lỗi dồn vào một lớp duy nhất --- và
+  Giả thiết~\ref{gt:doixung} trở nên sai dần đúng vào chế độ mà VLI$^*$ được
+  thiết kế cho. Đối chiếu bảng nhầm lẫn có cấu trúc, mức $0{,}510$ ứng với
+  irec khoảng $0{,}88$. Cùng với $\kappa$, đây là hai giới hạn quan trọng
+  nhất của dạng đóng, và cả hai đều đo được từ cột $Q$ của script chẩn đoán.
+
+\item \textbf{Tiên đoán khả phủ chứng về cơ chế sụp đổ.} Lý thuyết cho hai
+  tiên đoán khác nhau theo phương pháp. (a) Với ZLG$^+$ và RLU, sự sụp đổ chỉ
+  cần $\bar\epsilon_{\mathrm{tr}}\to0$ (Hệ quả~\ref{hq:apdung}), nên mức suy
+  giảm phải theo \emph{độ chính xác huấn luyện}, không theo khoảng cách tổng
+  quát hóa; và irec cuối cùng phải xấp xỉ độ chồng lấp giữa phân phối nhãn của
+  client với $\Phi(c)$ (gần đều) --- tức phụ thuộc vào $\alpha$ của phân hoạch
+  Dirichlet, không phụ thuộc vào tập dữ liệu. (b) Với LLG$^+$, sự đóng băng đòi
+  $\bar\epsilon_{\mathrm{tr}} \ll \bar\epsilon_{\mathrm{aux}}$
+  (Mệnh đề~\ref{md:llgp}), nên trên một mô hình có khoảng cách tổng quát hóa
+  nhỏ (MNIST + LeNet5) LLG$^+$ phải hoạt động lâu hơn so với CIFAR100 +
+  ResNet18. Nếu irec cuối của ZLG$^+$ khác xa độ chồng lấp tiên đoán, hoặc
+  LLG$^+$ trên MNIST sụp sớm như trên CIFAR100, thì cơ chế được đề xuất ở đây
+  \emph{sai} ở phần tương ứng.
+
+\item \textbf{Cái mốc chỉ là một toạ độ.} $G_{\max}$ mang toàn bộ việc hiệu
+  chuẩn thang độ, nên nhiễu cộng vừa phải --- loại mà một cập nhật có bảo mật
+  vi phân hoặc bị nén sẽ tạo ra --- làm VLI$^*$ suy giảm nhiều hơn so với một
+  ước lượng lấy trung bình trên nhiều toạ độ. Điều này gợi ra một hướng phòng
+  thủ tự nhiên: nhiễu động chỉ cần đủ để che lớp nào vắng mặt, chứ không cần
+  nhiễu bảo mật mạnh.
+
+\item \textbf{Đọc gradient là một tiện nghi hộp trắng.} Các đồng nhất thức
+  đòi gradient cross-entropy. Một cài đặt đọc bộ đệm gradient của tham số
+  \emph{trước} bước optimizer thu được đúng đại lượng đó, nhưng một server
+  thật quan sát một cập nhật trọng số tích lũy, mà dưới momentum, weight
+  decay, hoặc nhiều bước cục bộ thì không bằng $\sum_i(p_i-e_{y_i})$.
+  Momentum bằng không là \emph{một yêu cầu của phép suy luận}, không phải một
+  tùy chọn cho tiện.
+
+\item \textbf{Các số hạng chỉnh proximal và động làm nhiễm tín hiệu.} Số hạng
+  FedProx đóng góp $\mu(b-b_g)$ vào gradient bias, vốn không có tổng bằng
+  không và cũng không có dạng~\eqref{eq:hept}; khi đó
+  cả~\eqref{eq:tongkhong} lẫn cái mốc $G_{\max}$ đều sai. Dạng đóng nên được
+  giới hạn cho FedAvg thuần, và việc bản heuristic \emph{có vẻ} vẫn chạy dưới
+  FedProx không có cơ sở lý thuyết nào.
+
+\item \textbf{Phép gộp.} Nếu server chỉ quan sát trung bình của nhiều client,
+  mọi phương pháp trong báo cáo này khôi phục \emph{hợp} các nhãn của chúng,
+  không phải một phân rã theo từng client.
+
+\item \textbf{Phần số là dựa trên mô hình.} Như đã nêu ở
+  Mục~\ref{sec:kiemchung}, các bảng đánh giá mô hình sinh, không phải một
+  mạng đã huấn luyện. Chương trình thực nghiệm sẽ hoàn thiện báo cáo này là:
+  tạo các checkpoint trải một khoảng độ chính xác huấn luyện; đo
+  $\bar\epsilon_{\mathrm{tr}}$, $\bar\epsilon_{\mathrm{aux}}$, $\kappa$ và
+  $Q$ trên từng checkpoint; kiểm chứng trực tiếp Bổ đề~\ref{bd:chuan} và
+  Mệnh đề~\ref{md:khoangcach}; và vẽ tỉ lệ khôi phục theo
+  $\bar\epsilon_{\mathrm{tr}}$ cho mọi phương pháp, báo cáo riêng tỉ lệ các
+  cửa sổ có chứa lớp vắng mặt.
+\end{enumerate}
+
+% ============================================================================
+\begin{thebibliography}{9}
+\bibitem{ilrg} J.~Ma và cộng sự.
+  \emph{Instance-wise Batch Label Restoration via Gradients in Federated
+  Learning}. ICLR, 2023.
+\bibitem{llg} A.~Wainakh và cộng sự.
+  \emph{User-Level Label Leakage from Gradients in Federated Learning}.
+  arXiv:2105.09369, 2021.
+\bibitem{zlg} J.~Geng và cộng sự.
+  \emph{Towards General Deep Leakage in Federated Learning}.
+  arXiv:2110.09074, 2021.
+\bibitem{rlu} H.~Chen và H.~Vikalo.
+  \emph{Recovering Labels from Local Updates in Federated Learning}.
+  ICML, 2024.
+\bibitem{duchi} J.~Duchi, S.~Shalev-Shwartz, Y.~Singer và T.~Chandra.
+  \emph{Efficient Projections onto the $\ell_1$-Ball for Learning in High
+  Dimensions}. ICML, 2008.
+\bibitem{nb} P.~Domingos và M.~Pazzani.
+  \emph{On the Optimality of the Simple Bayesian Classifier under Zero-One
+  Loss}. Machine Learning, 29:103--130, 1997.
+\end{thebibliography}
+
+\end{document}

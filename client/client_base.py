@@ -502,6 +502,31 @@ class Client(object):
                 existences = (num_instances > 0).astype(int).tolist()
                 prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
                 _, irec, cAcc = self.accuracy_calculation(prediction, existences, num_instances)
+                if getattr(self.args, 'vli_star_diag', False):
+                    G = b_grad_epochs.detach().cpu().numpy().copy()
+                    n_w = self.args.batch_size * self.args.local_epochs
+                    absent = num_instances == 0
+                    out = ['irec_max=%.4f' % irec, 'n_absent=%d' % int(absent.sum())]
+                    if int(absent.sum()) >= 2:
+                        g_abs = G[absent]
+                        out.append('b=%.4f' % (float(g_abs.max() / g_abs.mean()) - 1.0))
+                        try:
+                            orc = VLI_star_closed_form(G, n_samples=n_w, gmax=float(g_abs.mean()))
+                            out.append('irec_ORACLE=%.4f' % (np.minimum(orc, num_instances).sum() / n_w))
+                        except ValueError as exc:
+                            out.append('irec_ORACLE=skip(%s)' % exc)
+                    pos = G[G > 0.0]
+                    out.append('n_pos=%d' % pos.size)
+                    rules = []
+                    if pos.size:
+                        rules = [('MEAN+', float(pos.mean())), ('MED+', float(np.median(pos)))]
+                    for tag, gval in rules:
+                        try:
+                            pr = VLI_star_closed_form(G, n_samples=n_w, gmax=gval)
+                            out.append('irec_%s=%.4f' % (tag, np.minimum(pr, num_instances).sum() / n_w))
+                        except ValueError:
+                            out.append('irec_%s=nan' % tag)
+                    print('  [VLI* diag]', ' '.join(out))
                 average_irec += irec
                 average_cAcc += cAcc
                 completed_windows += 1

@@ -1,0 +1,16 @@
+\babel@toc {vietnamese}{}\relax 
+\contentsline {section}{\numberline {1}Phạm vi}{1}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Mục tiêu và những gì đã cắt}{1}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Quy tắc trích dẫn}{2}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Mệnh đề cần chứng minh}{2}{subsection.1.3}%
+\contentsline {section}{\numberline {2}Ký hiệu}{2}{section.2}%
+\contentsline {section}{\numberline {3}Mắt xích 1: tử số co theo sai số}{3}{section.3}%
+\contentsline {section}{\numberline {4}Đối tượng: dạng chuẩn đọc từ mã nguồn}{3}{section.4}%
+\contentsline {section}{\numberline {5}Mắt xích 2: mẫu số không co}{4}{section.5}%
+\contentsline {section}{\numberline {6}Mắt xích 3: tỉ số nhỏ nhốt đầu ra}{4}{section.6}%
+\contentsline {section}{\numberline {7}Định lượng: chặn này cắn ở đâu}{6}{section.7}%
+\contentsline {section}{\numberline {8}Kết luận}{7}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Chuỗi lập luận, gói lại}{7}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Bốn chỗ kết luận này không phủ}{7}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Những gì cần đo}{7}{subsection.8.3}%
+\contentsline {section}{\numberline {A}Vị trí trong mã nguồn của mọi khẳng định \textsc {[cm]}}{8}{appendix.A}%

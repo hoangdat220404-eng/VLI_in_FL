@@ -1,0 +1,1068 @@
+% ============================================================================
+%  Why auxiliary-calibrated label-recovery attacks collapse on well-trained
+%  models, and how a scale-invariant estimator avoids it.
+%
+%  Compile:  pdflatex VLI_report.tex   (run twice for cross-references)
+%  Packages used are all part of a standard TeX Live / MiKTeX installation.
+% ============================================================================
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{assumption}{Assumption}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\pos}[1]{\left[#1\right]_+}
+\newcommand{\simplex}{\Delta_n}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\LSE}{LSE}
+
+\title{Label Recovery from Local Updates:\\
+Why Auxiliary-Calibrated Attacks Collapse on Well-Trained Models,\\
+and a Scale-Invariant Alternative}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study the recovery of per-class label counts in one client window of
+federated learning from the accumulated cross-entropy gradient of the final
+linear layer. We prove two exact identities relating that gradient to
+per-class error mass, and use them to isolate a single failure mechanism
+shared by the published baselines iLRG, LLG$^+$, ZLG$^+$ and RLU: each
+combines the observed update with a statistic of \emph{absolute magnitude}
+measured outside the attacked window. Since the gradient norm is bounded by
+the training error (Lemma~\ref{lem:norm}) while the held-out error stays
+bounded away from zero (Proposition~\ref{prop:gap}), the two magnitudes
+diverge as the model improves, and the estimator converges to a quantity
+that does not depend on the attacked labels at all
+(Theorem~\ref{thm:collapse}). We then present VLI and its closed form
+VLI$^*$, whose defining property is invariance to the scale of the update
+(Proposition~\ref{prop:invariance}); under a symmetry assumption that we show
+is the unique label-exchangeable choice (Proposition~\ref{prop:exchange}),
+VLI$^*$ reduces to a single scale-free expression that is exact
+(Theorem~\ref{thm:closed}). We state the assumption's failure modes
+quantitatively rather than claiming it holds.
+\end{abstract}
+
+\tableofcontents
+
+% ============================================================================
+\section{Scope and contribution}
+
+\paragraph{What this report establishes.}
+\begin{enumerate}
+\item Two exact identities for the final-layer bias gradient
+  (Lemmas~\ref{lem:norm} and~\ref{lem:identities}), including the
+  zero-sum property $\sum_j G_j = 0$ that later does most of the work.
+\item A single theorem (Theorem~\ref{thm:collapse}) that explains, in one
+  mechanism, the degradation of every auxiliary-calibrated baseline as the
+  global model improves, together with three supporting propositions
+  (held-out error gap, Jensen gap in logit averaging, non-Lipschitz
+  renormalization).
+\item A scale-invariance property (Proposition~\ref{prop:invariance}) that
+  the proposed estimator satisfies and the baselines do not, and a closed
+  form (Theorem~\ref{thm:closed}) that is exact under a stated symmetry.
+\item A uniqueness argument (Proposition~\ref{prop:exchange}) replacing the
+  symmetry assumption's usual justification ``for simplicity'' with
+  ``the unique choice available to an attacker with no class-specific
+  knowledge''.
+\item A sufficient condition strictly weaker than that symmetry
+  (Proposition~\ref{prop:weak}), which widens the region of exactness.
+\end{enumerate}
+
+\paragraph{What this report does \emph{not} establish.}
+The difficulty vector $r$ and confusion matrix $Q$ introduced below are
+\emph{not} claimed to be recoverable from a shared update; the generalized
+estimator of Theorem~\ref{thm:general} takes them as inputs and is used here
+as an oracle upper bound. The numerical tables in
+Section~\ref{sec:numerics} are evaluations on the generative model implied by
+the assumptions, not experiments on a trained network; they verify algebra
+and probe sensitivity, and are labelled as such throughout.
+
+% ============================================================================
+\section{Notation}
+\label{sec:notation}
+
+A client window contains $n$ examples drawn from $C$ classes. For
+example $i$:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$y_i \in \{1,\dots,C\}$ & true label of example $i$ \\
+$z_i \in \R^C$ & logits, $z_i = W e_i + b$ where $e_i$ is the embedding \\
+$p_i = \softmax(z_i)$ & predicted class distribution \\
+$e_{y_i}$ & one-hot indicator of the true class \\
+$\ell_i = -\log p_{i,y_i}$ & cross-entropy loss \\
+$L_{\mathrm{train}} = n^{-1}\sum_i \ell_i$ & mean training loss on the window \\
+\midrule
+$N_j = \#\{i : y_i = j\}$ & true count of class $j$; $\sum_j N_j = n$ \\
+$\pi_j = N_j/n$ & true class proportion \\
+$P_j = \sum_i p_{i,j}$ & total predicted mass on class $j$ \\
+$G = \sum_{i=1}^n (p_i - e_{y_i})$ & \textbf{bias-gradient signal} \\
+\midrule
+$\epsilon_i = 1 - p_{i,y_i}$ & per-example error \\
+$\bar\epsilon = n^{-1}\sum_i \epsilon_i$ & mean error on the window \\
+$\bar\epsilon_j = N_j^{-1}\sum_{i:y_i=j}\epsilon_i$ & mean error of class $j$ (present $j$) \\
+$a_j = N_j \bar\epsilon_j$ & \textbf{error mass} of class $j$; $a_j = 0$ if absent \\
+$r_j = \bar\epsilon_j/\bar\epsilon$ & relative difficulty; $a_j = N_j r_j \bar\epsilon$ \\
+$\kappa = r_{\max}/r_{\min}$ & difficulty spread over present classes \\
+\midrule
+$E_j = \sum_{i:y_i\ne j} p_{i,j}$ & error mass flowing \emph{into} class $j$ \\
+$Q_{jk}$ & fraction of class $j$'s error mass sent to $k$; $Q_{jj}=0$ \\
+$v$ & Perron vector of $Q^T$, $Q^Tv = v$, $\one^Tv=1$ \\
+\midrule
+$M_i = z_{i,y_i} - \LSE_{k\ne y_i} z_{i,k}$ & margin; $\epsilon_i = (1+e^{M_i})^{-1}$ \\
+$\simplex = \{x \in \R^C : x \ge 0,\ \one^Tx = n\}$ & scaled probability simplex \\
+$\pos{x} = \max(x,0)$ & componentwise positive part \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The off-diagonal error-transition matrix is defined for $a_j > 0$ by
+\[
+ Q_{jk} = \frac{\sum_{i : y_i = j} p_{i,k}}{a_j} \quad (k \ne j),
+ \qquad Q_{jj} = 0 .
+\]
+Every defined row is nonnegative and sums to one, since
+$\sum_{k\ne j}\sum_{i:y_i=j} p_{i,k} = \sum_{i:y_i=j}(1-p_{i,j}) = a_j$.
+A class with zero error mass may be assigned any distribution over the other
+classes; it contributes nothing to $Q^Ta$. Dividing by $a_j$ is what removes
+$\bar\epsilon$ from $Q$: the matrix carries the \emph{shape} of the model's
+confusion, not its magnitude. The same holds for $r$, a ratio of errors.
+This distinction between \emph{shape} and \emph{magnitude} is the pivot of
+the entire report.
+
+\paragraph{Signal convention.}
+An implementation accumulates per-minibatch \emph{mean}-loss gradients. With
+all minibatches of size $B$ and $m$ steps per window ($n = mB$), the
+accumulated signal differs from the example-sum $G$ above by a common
+positive factor, and possibly by a further common window normalization. Every
+formula below that is declared scale-invariant is unaffected by such a
+factor. Under plain SGD a server weight update has the opposite sign; $G$
+always denotes the loss gradient.
+
+% ============================================================================
+\section{Exact identities}
+
+\begin{lemma}[Gradient norm is controlled by training error]
+\label{lem:norm}
+For every example, $\|p_i - e_{y_i}\|_1 = 2\epsilon_i$. Consequently
+\[
+ \|G\|_1 \;\le\; 2n\bar\epsilon \;\le\; 2n L_{\mathrm{train}} .
+\]
+\end{lemma}
+
+\begin{proof}
+The true-class coordinate of $p_i - e_{y_i}$ has absolute value
+$1 - p_{i,y_i} = \epsilon_i$. The remaining coordinates are nonnegative and
+sum to $1 - p_{i,y_i} = \epsilon_i$. Adding gives $2\epsilon_i$. The
+triangle inequality yields
+$\|G\|_1 \le \sum_i \|p_i - e_{y_i}\|_1 = 2n\bar\epsilon$. Finally
+$1 - x \le -\log x$ for $x \in (0,1]$; apply it at $x = p_{i,y_i}$ and
+average.
+\end{proof}
+
+Lemma~\ref{lem:norm} is the quantitative statement of the phenomenon this
+report explains: \emph{as the model fits its training data, the entire signal
+available to any attacker shrinks proportionally to the training error.} It
+does not say the label information disappears --- Lemma~\ref{lem:identities}
+shows the information survives in the \emph{direction} of $G$ --- but it does
+say that any procedure comparing $G$ against a fixed external magnitude will
+eventually be dominated by that external quantity.
+
+\begin{lemma}[Count, error-mass and confusion identities]
+\label{lem:identities}
+Let $P_j = \sum_i p_{i,j}$. Then
+\[
+ G_j = P_j - N_j = -a_j + E_j,
+ \qquad N_j = P_j - G_j,
+ \qquad E_j = (Q^Ta)_j ,
+\]
+and therefore
+\begin{equation}
+ G = -(I - Q^T)\,a .
+ \label{eq:system}
+\end{equation}
+Moreover
+\begin{equation}
+ \sum_{j=1}^C G_j = 0 ,
+ \label{eq:zerosum}
+\end{equation}
+and if $N_j = 0$ then $G_j = P_j \ge 0$.
+\end{lemma}
+
+\begin{proof}
+The $j$th coordinate of $G$ accumulates all predicted mass on class $j$ and
+subtracts one per true class-$j$ example, giving $P_j - N_j$. Split $P_j$
+into its true-class part $\sum_{i:y_i=j}p_{i,j} = N_j - a_j$ and its
+other-class part $E_j$; this yields $G_j = -a_j + E_j$ and the absent-class
+sign statement. For the confusion form, for each target $k$,
+\[
+ E_k = \sum_{j \ne k}\ \sum_{i : y_i = j} p_{i,k}
+     = \sum_j a_j Q_{jk} = (Q^Ta)_k ,
+\]
+and substituting into $G = -a + E$ gives~\eqref{eq:system}. For
+\eqref{eq:zerosum}, $\sum_j P_j = \sum_i \sum_j p_{i,j} = n$ and
+$\sum_j N_j = n$.
+\end{proof}
+
+\begin{remark}
+Identity~\eqref{eq:zerosum} has three consequences used repeatedly below.
+(i) A nonzero $G$ must have a strictly positive coordinate, so the anchor
+used by VLI$^*$ exists whenever the signal is not identically zero.
+(ii) Mass conservation in Theorem~\ref{thm:closed} is automatic, so no
+renormalization step is required. (iii) Each minibatch mean gradient is
+itself zero-sum, since $B^{-1}(B - B) = 0$; the accumulated signal therefore
+inherits~\eqref{eq:zerosum} up to floating-point error, even though the model
+moves between steps.
+\end{remark}
+
+\begin{remark}[Validity across local steps]
+Lemmas~\ref{lem:norm} and~\ref{lem:identities} are per-example statements and
+hold when different examples are evaluated at different local model states.
+They do \emph{not} automatically describe a server's optimizer update when
+that update also contains momentum state, weight decay, a proximal term, or a
+FedDyn correction. Section~\ref{sec:limits} returns to this.
+\end{remark}
+
+% ============================================================================
+\section{Baseline estimators}
+\label{sec:baselines}
+
+We write each published baseline in the form in which it is implemented, so
+that the next section can identify precisely which quantity each one borrows
+from outside the attacked window. Throughout, $g = G/n$ denotes the
+normalized signal and quantities carrying a bar or a hat
+($\bar p$, $\bar O$, $\mathrm{shift}$, $\mathrm{offset}$) are measured on an
+\emph{auxiliary} dataset available to the attacker --- in practice a
+stratified fraction of the test set, hence approximately class-balanced.
+
+\paragraph{iLRG (Ma et al., 2023).}
+Recovers a class-wise embedding estimate as the ratio of the weight and bias
+gradients, $\hat e_j = \nabla_{W_j}\!/\,\nabla_{b_j}$, feeds it through the
+classifier to obtain recovered probability vectors, and solves a linear
+system for the counts by pseudo-inverse.
+
+\paragraph{LLG (Wainakh et al., 2021).}
+Computes a single scalar \emph{impact} from the observed signal itself,
+\[
+ \mathrm{impact} = \Bigl(1 + \tfrac1C\Bigr)\frac{\sum_{j : G_j<0} G_j}{B},
+\]
+selects every class with a negative coordinate, and then greedily assigns the
+remaining slots to the current $\argmin$ coordinate, decrementing by
+$\mathrm{impact}$ after each assignment.
+
+\paragraph{LLG$^+$ (Wainakh et al., 2021).}
+As LLG, but first subtracts an auxiliary-measured offset,
+\[
+ G \longleftarrow G - \mathrm{offset}, \qquad
+ \mathrm{offset}_j = \text{mean non-target coordinate $j$ on auxiliary data},
+\]
+and averages the auxiliary impact with the one measured before training.
+
+\paragraph{ZLG$^+$ (Geng et al., 2021).}
+\begin{equation}
+ \widehat N_j = n\Bigl(\bar p_j - \frac{G_j}{\bar O}\Bigr),
+ \label{eq:zlg}
+\end{equation}
+followed by clipping at zero and a multiplicative rescaling to total $n$;
+$\bar p$ is an auxiliary posterior and $\bar O$ an auxiliary mean embedding
+norm.
+
+\paragraph{RLU (Chen and Vikalo, 2024).}
+\begin{equation}
+ \widehat N = n \cdot \frac{\pos{\mathrm{shift}\cdot\bar\rho - G}}
+                           {\bigl\|\pos{\mathrm{shift}\cdot\bar\rho - G}\bigr\|_1},
+ \qquad \mathrm{shift} = \softmax(\mu_{\mathrm{aux}}),
+ \label{eq:rlu}
+\end{equation}
+where $\mu_{\mathrm{aux}}$ is the vector of \emph{mean logits} per class
+measured on auxiliary data, $\bar\rho$ is a scalar accumulated-step
+coefficient, and a posterior search then perturbs $\widehat N$ in units of
+$m$ to better match $\mu_{\mathrm{aux}}$.
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Method & External quantity used & Its units & Form \\
+\midrule
+iLRG      & none (uses $\nabla W/\nabla b$) & --- & pseudo-inverse \\
+LLG       & none                            & --- & self-calibrated greedy \\
+LLG$^+$   & $\mathrm{offset}$               & absolute, $\propto \bar\epsilon_{\mathrm{aux}}$ & additive \\
+ZLG$^+$   & $\bar p$, $\bar O$              & absolute                                        & \eqref{eq:zlg} \\
+RLU       & $\mathrm{shift}$                & absolute, $\propto \bar\epsilon_{\mathrm{aux}}$ & \eqref{eq:rlu} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section{The failure mechanism}
+\label{sec:failure}
+
+\subsection{Auxiliary-only calibration becomes label-independent}
+
+\begin{theorem}[Collapse of auxiliary-calibrated estimators]
+\label{thm:collapse}
+Let an estimator of normalized class proportions take the form
+\[
+ \widehat\pi = \Phi\bigl(c - G/n\bigr),
+\]
+where $c$ depends only on information outside the attacked client window and
+$\Phi$ is $L_\Phi$-Lipschitz in a stated norm. Then
+\begin{equation}
+ \bigl\|\widehat\pi - \Phi(c)\bigr\|
+ \;\le\; \frac{L_\Phi}{n}\|G\|_1
+ \;\le\; 2L_\Phi\,\bar\epsilon
+ \;\le\; 2L_\Phi\,L_{\mathrm{train}} .
+ \label{eq:collapse}
+\end{equation}
+Hence as $L_{\mathrm{train}} \to 0$ the estimate converges to $\Phi(c)$, a
+vector determined entirely by $c$ and not by the attacked labels. For an
+estimator returning counts $n\Phi(\cdot)$ the bound is multiplied by $n$.
+\end{theorem}
+
+\begin{proof}
+Lipschitz continuity gives
+$\|\Phi(c - G/n) - \Phi(c)\| \le L_\Phi \|G/n\|_1$; apply
+Lemma~\ref{lem:norm}.
+\end{proof}
+
+Both~\eqref{eq:zlg} and~\eqref{eq:rlu} are instances of this form, with
+$c = \bar p$ and $c = \mathrm{shift}\cdot\bar\rho$ respectively, and
+LLG$^+$'s offset subtraction is the same construction applied before a greedy
+rule. The limit $\Phi(c)$ is informative:
+
+\begin{itemize}
+\item For ZLG$^+$, $\Phi(c) = n\bar p$. Since the auxiliary set is built
+  class-balanced, $\bar p$ is approximately uniform, so the estimator
+  degenerates to \emph{predicting a uniform class distribution}. Under a
+  Dirichlet partition the overlap between the true client distribution and
+  the uniform one is approximately $0.54$ at $\alpha = 0.5$ and $0.29$ at
+  $\alpha = 0.1$ for $C = 10$; these are the instance-recovery values the
+  method approaches. The failure is predictable, not random.
+\item For RLU, $\Phi(c) = n\,\mathrm{shift}/\|\mathrm{shift}\|_1$, again a
+  label-independent vector.
+\item For LLG$^+$, the signal $G$ is overwhelmed by $-\mathrm{offset}$ and
+  the subsequent $\argmin$ ordering is governed by the offset, not by the
+  window. This predicts the counter-intuitive conclusion that LLG$^+$ is
+  \emph{worse} than LLG, whose impact is computed from $G$ itself.
+\end{itemize}
+
+\begin{remark}[Limitation of the theorem]
+Theorem~\ref{thm:collapse} applies to an implementation only after its exact
+map, clipping and rounding have been shown to satisfy the representation and
+the Lipschitz condition. It is not by itself a proof that every branch of
+RLU's posterior search satisfies~\eqref{eq:collapse}. Indeed
+Proposition~\ref{prop:lip} shows that RLU's normalization is \emph{not}
+globally Lipschitz, so for that method the theorem should be read as
+identifying the mechanism rather than as a tight bound.
+\end{remark}
+
+\subsection{Why the external magnitude does not shrink with the signal}
+
+\begin{proposition}[Held-out error gap]
+\label{prop:gap}
+If an example is misclassified by the $\argmax$ rule, then
+$p_{i,y_i} \le 1/2$ and hence $\epsilon_i \ge 1/2$. Consequently, if the
+auxiliary error rate is $\tau_{\mathrm{err}}$,
+\[
+ \bar\epsilon_{\mathrm{aux}} \;\ge\; \tau_{\mathrm{err}}/2 .
+\]
+If $\bar\epsilon_{\mathrm{train}} \to 0$ while $\tau_{\mathrm{err}}$ stays
+bounded away from zero, then
+$\bar\epsilon_{\mathrm{aux}}/\bar\epsilon_{\mathrm{train}} \to \infty$.
+\end{proposition}
+
+\begin{proof}
+On a misclassified example some $k \ne y_i$ has $p_{i,k} \ge p_{i,y_i}$;
+since $p_{i,k} + p_{i,y_i} \le 1$ we get $p_{i,y_i} \le 1/2$. Average the
+resulting lower bound on $1 - p_{i,y_i}$ over the auxiliary set, discarding
+the nonnegative contribution of correctly classified examples.
+\end{proof}
+
+Proposition~\ref{prop:gap} is the second half of the mechanism. Lemma
+\ref{lem:norm} says $\|G\| \to 0$; Proposition~\ref{prop:gap} says the
+auxiliary magnitudes entering $c$ do \emph{not}. Their ratio diverges, so the
+subtraction $c - G/n$ in Theorem~\ref{thm:collapse} is a comparison between
+two quantities on incommensurable scales. \emph{Generalization gap, not
+estimator design, is what breaks these attacks.}
+
+\subsection{Two further defects specific to RLU}
+
+\begin{proposition}[Jensen gap in logit averaging]
+\label{prop:jensen}
+For a sample with margin $M$, $\epsilon = (1+e^M)^{-1}$, and
+$\epsilon \approx e^{-M}$ when $M$ is large and positive. If within-class
+margins are approximately $\mathcal N(\mu,\sigma^2)$ and the large-margin
+approximation is valid over most of their mass, then
+\[
+ \E\bigl[e^{-M}\bigr] = e^{-\mu + \sigma^2/2},
+ \qquad e^{-\E[M]} = e^{-\mu},
+\]
+so substituting a mean margin understates this surrogate by the factor
+$e^{\sigma^2/2}$. Jensen's inequality gives
+$\E[e^{-M}] \ge e^{-\E[M]}$ unconditionally.
+\end{proposition}
+
+Equation~\eqref{eq:rlu} sets $\mathrm{shift} = \softmax(\mu_{\mathrm{aux}})$,
+a softmax of \emph{mean logits}, i.e.\ exactly the substitution
+Proposition~\ref{prop:jensen} describes. The bias is systematic and in the
+direction of \emph{understating} error mass. The aggravating detail is that
+training increases both $\mu$ and $\sigma$, so the gap $e^{\sigma^2/2}$ is
+largest precisely when the signal is weakest; the two effects compound.
+
+\begin{proposition}[Clip-and-renormalize is not Lipschitz; projection is]
+\label{prop:lip}
+Let $R(y) = n\pos{y}/\|\pos{y}\|_1$ denote clip-and-renormalize, as used
+in~\eqref{eq:rlu} and after~\eqref{eq:zlg}, and let $\Pi_{\simplex}$ denote
+Euclidean projection onto $\simplex$. Then
+\[
+ \sup_{a \ne b} \frac{\|R(a)-R(b)\|}{\|a-b\|} = \infty,
+ \qquad\text{whereas}\qquad
+ \|\Pi_{\simplex}(a) - \Pi_{\simplex}(b)\| \le \|a-b\| \quad \forall a,b .
+\]
+\end{proposition}
+
+\begin{proof}
+Projection onto a nonempty closed convex set is non-expansive, which gives
+the second claim. For the first, take $a = (\delta, \delta/2, -1, \ldots)$
+and $b = a + \eta u$ with $u$ supported on the first two coordinates. As
+$\delta \to 0$ the denominator $\|\pos{a}\|_1 \to 0$, so $R$ magnifies the
+perturbation without bound.
+\end{proof}
+
+The practical consequence is that the final normalization step of RLU and
+ZLG$^+$ can \emph{amplify} gradient noise, while the corresponding step of
+VLI$^*$ (Section~\ref{sec:vli}) cannot. Section~\ref{sec:numerics} reports a
+measured amplification factor exceeding $4\times 10^4$ for $R$ against
+exactly $1$ for $\Pi_{\simplex}$.
+
+\subsection{iLRG: a conditioning failure, not a calibration failure}
+
+iLRG uses no auxiliary statistic, so Theorem~\ref{thm:collapse} does not
+apply. Its difficulty is different. By Lemma~\ref{lem:identities},
+$G_j = -a_j + E_j$, so as $\bar\epsilon \to 0$ both $a_j$ and $E_j$ vanish
+and the bias gradient used as a \emph{denominator} in
+$\hat e_j = \nabla_{W_j}/\nabla_{b_j}$ tends to zero. The ratio remains
+finite in exact arithmetic but its relative error is amplified without
+bound; the reference implementation must clamp the exponent of the ratio and
+substitute a magic value when the denominator is exactly zero. The
+subsequent linear system is also increasingly ill-conditioned, since
+$p_i \to e_{y_i}$ makes all recovered probability vectors collapse towards
+one-hot vectors.
+
+\subsection{Summary of baseline diagnoses}
+
+\begin{center}
+\begin{tabular}{llp{6.3cm}}
+\toprule
+Method & Mechanism & Limit or symptom \\
+\midrule
+iLRG    & conditioning       & division by a vanishing bias gradient; near-singular pseudo-inverse \\
+LLG     & none (scale-free)  & survives; but assumes $r_j \equiv 1$, uniform $Q$, and multiplies a single-batch answer by $m$ \\
+LLG$^+$ & Thm~\ref{thm:collapse} + Prop~\ref{prop:gap} & auxiliary offset dominates $G$; worse than LLG \\
+ZLG$^+$ & Thm~\ref{thm:collapse} + Prop~\ref{prop:gap} & $\widehat N \to n\bar p \approx$ uniform prior \\
+RLU     & Thm~\ref{thm:collapse} + Props~\ref{prop:gap},~\ref{prop:jensen},~\ref{prop:lip} & $\widehat N \to n\,\mathrm{shift}$; Jensen bias $e^{\sigma^2/2}$; non-Lipschitz normalization \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================================
+\section{VLI and VLI$^*$}
+\label{sec:vli}
+
+\subsection{The design principle}
+
+Lemma~\ref{lem:identities} writes $a_j = N_j r_j \bar\epsilon$, so the
+label information lies in the \emph{relative} structure of $G$, while
+$\bar\epsilon$ --- the quantity that vanishes under training --- enters only
+as a common factor. This suggests requiring of an estimator exactly the
+property the baselines lack.
+
+\begin{proposition}[Scale invariance]
+\label{prop:invariance}
+Let $\Psi$ denote the map defined in Theorem~\ref{thm:closed}, and let
+$\Psi_{\mathrm{gen}}$ denote the map of Theorem~\ref{thm:general}. For every
+$c>0$,
+\[
+ \Psi(cG) = \Psi(G), \qquad \Psi_{\mathrm{gen}}(cG, r, Q) = \Psi_{\mathrm{gen}}(G,r,Q) .
+\]
+Consequently neither estimator can exhibit the collapse of
+Theorem~\ref{thm:collapse}: no quantity of absolute magnitude enters either
+map.
+\end{proposition}
+
+\begin{proof}
+In Theorem~\ref{thm:closed} the signal appears only through the ratio
+$G_j/G_{\max}$, and $G_{\max}(cG) = c\,G_{\max}(G)$ for $c>0$. In
+Theorem~\ref{thm:general} the solution $a$ of~\eqref{eq:system} is
+positively homogeneous in $G$, and the output is the ratio
+$n(a_j/r_j)/\sum_k (a_k/r_k)$.
+\end{proof}
+
+\begin{remark}[The heuristic version is only partly invariant]
+The original VLI procedure builds a zero-sum basis with diagonal
+$d = n^{-1}\sum_{j:G_j<0}G_j$ and off-diagonal $-d/(C-1)$, scales $d$ by a
+``dynamic boost'' $f_1 f_2 f_3$, and greedily peels basis columns from a
+residual initialized at $G$. The factor $f_1$ is a function of normalized
+projections and is scale-invariant, but $f_2 = (w_2\|G\|_2+1)^{-1}$ and
+$f_3 = w_3^{-100|d|}$ depend on the absolute magnitude of $G$. The heuristic
+therefore violates Proposition~\ref{prop:invariance}, and its five constants
+must be retuned per dataset, model and accuracy level.
+Theorem~\ref{thm:closed} removes them.
+\end{remark}
+
+\subsection{The symmetry assumption, and why it is forced}
+
+\begin{assumption}[Symmetric error geometry]
+\label{ass:sym}
+All present classes have equal mean error, $r_j = 1$, and every class
+distributes its error mass uniformly over the other classes,
+$Q_{jk} = 1/(C-1)$ for $k \ne j$. At least one class is absent from the
+window, and $\bar\epsilon > 0$.
+\end{assumption}
+
+Assumption~\ref{ass:sym} is false for any real model. The following
+proposition explains why it is nonetheless the correct choice for an
+estimator that is required to use no class-specific side information.
+
+\begin{proposition}[Uniqueness under label exchangeability]
+\label{prop:exchange}
+The uniform matrix $Q_{jk} = 1/(C-1)$ $(k\ne j)$, $Q_{jj}=0$, is the
+\emph{unique} row-stochastic matrix with zero diagonal satisfying
+$P Q P^T = Q$ for every $C\times C$ permutation matrix $P$.
+\end{proposition}
+
+\begin{proof}
+Permutation invariance means $Q_{\sigma(j)\sigma(k)} = Q_{jk}$ for every
+permutation $\sigma$. Given any two off-diagonal positions $(j,k)$ and
+$(j',k')$ with $j\ne k$, $j'\ne k'$, there is a permutation carrying one to
+the other, so all off-diagonal entries are equal, say to $q$. Row
+stochasticity with $C-1$ off-diagonal entries per row forces
+$q = 1/(C-1)$. Conversely the uniform matrix is clearly invariant.
+\end{proof}
+
+An attacker who does not know which classes are confusable has no basis for
+breaking the symmetry among class labels; any non-uniform $Q$ asserts
+class-specific knowledge. Proposition~\ref{prop:exchange} says the uniform
+choice is then not a simplification but the only admissible one --- the same
+style of argument that derives a uniform prior from exchangeability. A
+degrees-of-freedom count agrees: system~\eqref{eq:system} provides $C$
+equations, while the unknowns are $a$ together with the $C(C-2)$ free
+parameters of $Q$; identifiability with no side information requires removing
+all of the latter, and the uniform matrix is the unique zero-parameter,
+label-equivariant choice that keeps the system solvable in closed form.
+
+\subsection{The closed form}
+
+\begin{theorem}[Closed-form VLI$^*$]
+\label{thm:closed}
+Under Assumption~\ref{ass:sym},
+\begin{equation}
+ G_j = \frac{n\bar\epsilon - C a_j}{C-1},
+ \qquad
+ G_{\max} = \frac{n\bar\epsilon}{C-1},
+ \qquad
+ \boxed{\;N_j = \frac{n}{C}\Bigl(1 - \frac{G_j}{G_{\max}}\Bigr)\;}
+ \label{eq:closed}
+\end{equation}
+and the final expression is invariant under $G \mapsto cG$ for $c>0$.
+\end{theorem}
+
+\begin{proof}
+Under uniform confusion
+$(Q^Ta)_j = \bigl(\sum_k a_k - a_j\bigr)/(C-1)$, so
+by~\eqref{eq:system}
+\[
+ G_j = -a_j + \frac{\sum_k a_k - a_j}{C-1}
+     = \frac{\sum_k a_k - C a_j}{C-1} ,
+\]
+and $\sum_k a_k = n\bar\epsilon$ gives the first equality. Since
+$a_j \ge 0$ and $G_j$ is affine and strictly decreasing in $a_j$ with the
+same slope $-C/(C-1)$ for every $j$, the maximum of $G$ is attained exactly
+where $a_j = 0$, that is at an absent class, giving
+$G_{\max} = n\bar\epsilon/(C-1)$; Assumption~\ref{ass:sym} guarantees such a
+class exists. Dividing,
+\[
+ \frac{G_j}{G_{\max}} = 1 - \frac{C a_j}{n\bar\epsilon}
+ \quad\Longrightarrow\quad
+ a_j = \frac{n\bar\epsilon}{C}\Bigl(1 - \frac{G_j}{G_{\max}}\Bigr),
+\]
+and $r_j = 1$ gives $a_j = N_j\bar\epsilon$, so $\bar\epsilon$ cancels and
+\eqref{eq:closed} follows. A common positive factor cancels in
+$G_j/G_{\max}$.
+\end{proof}
+
+The cancellation of $\bar\epsilon$ in the last step is the entire point. The
+role of $G_{\max}$ is to serve as an \emph{in-window thermometer} for
+$\bar\epsilon$: an absent class has $a_j = 0$, so its coordinate reads the
+error scale directly off the attacked update. Where RLU, ZLG$^+$ and LLG$^+$
+borrow that scale from auxiliary data and are punished by
+Proposition~\ref{prop:gap}, VLI$^*$ reads it from inside the window.
+
+\begin{proposition}[Structural properties of~\eqref{eq:closed}]
+\label{prop:props}
+Write $\mathrm{raw}_j = \tfrac{n}{C}(1 - G_j/G_{\max})$ with $G_{\max}>0$.
+Then
+\begin{enumerate}
+\item $\mathrm{raw}_j \ge 0$ for every $j$, with equality at the maximizing
+  coordinate; no clipping is required.
+\item $\sum_j \mathrm{raw}_j = n$, by~\eqref{eq:zerosum}; no renormalization
+  is required.
+\item Under Assumption~\ref{ass:sym},
+  $\mathrm{raw}_j - \mathrm{raw}_k = N_j - N_k$ exactly.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+(i) $G_j \le G_{\max}$ and $G_{\max}>0$ give $G_j/G_{\max} \le 1$.
+(ii) $\sum_j \mathrm{raw}_j = \tfrac{n}{C}\bigl(C - G_{\max}^{-1}\sum_j G_j\bigr) = n$.
+(iii) From Theorem~\ref{thm:closed},
+$G_k - G_j = C\bar\epsilon(N_j-N_k)/(C-1)$ and
+$G_{\max} = n\bar\epsilon/(C-1)$, hence
+$\mathrm{raw}_j - \mathrm{raw}_k = \tfrac{n}{C}\cdot\tfrac{G_k-G_j}{G_{\max}}
+ = \tfrac{n}{C}\cdot\tfrac{C(N_j-N_k)}{n} = N_j - N_k$.
+\end{proof}
+
+Items (i) and (ii) remove exactly the two steps that
+Proposition~\ref{prop:lip} identifies as pathological in RLU and ZLG$^+$.
+Item (iii) determines the correct way to repair a perturbed estimate: the
+label information lies in the \emph{differences} of $\mathrm{raw}$, so the
+repair must be \emph{additive}. Euclidean projection onto $\simplex$ has
+exactly this form,
+\[
+ \Pi_{\simplex}(y)_j = \max(y_j - \theta, 0),
+ \qquad \theta \text{ chosen so that } \textstyle\sum_j \max(y_j-\theta,0) = n,
+\]
+obtained from the Karush--Kuhn--Tucker conditions of
+$\min_{x\in\simplex}\tfrac12\|x-y\|^2$: it subtracts a single threshold and
+clips, preserving differences among surviving coordinates. By
+Proposition~\ref{prop:lip} it is also non-expansive. A multiplicative
+rescaling preserves ratios instead and is therefore the wrong repair for
+counts.
+
+\subsection{A sufficient condition weaker than Assumption~\ref{ass:sym}}
+
+\begin{proposition}[Weaker sufficient condition]
+\label{prop:weak}
+Suppose $r_j = 1$ on present classes, at least one class is absent, and the
+incoming error mass satisfies
+\begin{equation}
+ (Q^Ta)_j = \frac{\sum_k a_k - a_j}{C-1} \qquad \text{for every } j .
+ \label{eq:flow}
+\end{equation}
+Then~\eqref{eq:closed} holds exactly. Uniform $Q$ implies~\eqref{eq:flow},
+but~\eqref{eq:flow} is strictly weaker: it constrains the vector $Q^Ta$
+rather than the individual entries of $Q$.
+\end{proposition}
+
+\begin{proof}
+Substituting~\eqref{eq:flow} into $G = -a + Q^Ta$ reproduces the expression
+for $G_j$ in Theorem~\ref{thm:closed}, from which the rest of that proof
+applies verbatim. Strictness follows from the example below.
+\end{proof}
+
+Condition~\eqref{eq:flow} is a statement about the \emph{aggregate} inflow
+into each class and can hold for highly non-uniform $Q$. Concretely, take
+$C=10$ with present classes carrying equal counts and let $Q$ consist of
+confusable pairs $(0,1), (2,3), \ldots$, each class sending a fraction $s$ of
+its error mass to its partner and spreading the rest uniformly. If the absent
+classes form a complete pair, then $G$ takes only two distinct values --- one
+across all present classes and one across all absent classes --- so $G$
+remains affine in $N$ and recovery is exact \emph{for every} $s$, including
+$s = 0.9$. Section~\ref{sec:numerics} verifies this. The practical reading is
+that the exactness region of~\eqref{eq:closed} is a set containing the
+uniform-$Q$ point, not that single point, and that departures are governed by
+the residual of~\eqref{eq:flow} rather than by the distance of $Q$ from
+uniform.
+
+\subsection{Known geometry: the oracle upper bound}
+
+\begin{assumption}[Known irreducible error geometry]
+\label{ass:geom}
+$Q$ is known, row-stochastic, nonnegative, zero-diagonal and irreducible;
+$r$ is known and strictly positive on present classes; at least one class is
+absent; $\bar\epsilon>0$.
+\end{assumption}
+
+\begin{theorem}[Recovery with known $(r,Q)$]
+\label{thm:general}
+Under Assumption~\ref{ass:geom}, let $v>0$ be the normalized Perron vector
+with $Q^Tv=v$, $\one^Tv=1$. Every solution of~\eqref{eq:system} is
+$a = a_0 + tv$ with $a_0 = (I-Q^T)^{+}(-G)$, and the requirements $a \ge 0$
+together with the existence of an absent class select
+\begin{equation}
+ t = \max_j\Bigl(-\frac{a_{0,j}}{v_j}\Bigr),
+ \qquad
+ \widehat N_j = n\,\frac{a_j/r_j}{\sum_k a_k/r_k}.
+ \label{eq:general}
+\end{equation}
+For exact $G$, $r$ and $Q$, \eqref{eq:general} equals the true counts.
+\end{theorem}
+
+\begin{proof}
+$Q$ irreducible and stochastic gives, by Perron--Frobenius, a
+one-dimensional nullspace of $I-Q^T$ spanned by a strictly positive $v$, so
+all solutions differ by $tv$. The constraints $a_{0,j}+tv_j\ge0$ are
+equivalent to $t \ge \max_j(-a_{0,j}/v_j)$, and at the smallest feasible $t$
+at least one coordinate vanishes. The true $a$ is nonnegative and has a zero
+coordinate because some class is absent, so it is this boundary solution. For
+present classes $a_j = N_jr_j\bar\epsilon$, hence
+$a_j/r_j = N_j\bar\epsilon$, and normalizing these to sum to $n$ returns the
+counts. Absent classes contribute zero regardless of the positive placeholder
+used for their $r_j$.
+\end{proof}
+
+\begin{corollary}[Difficulty-mismatch bound]
+\label{cor:kappa}
+Suppose $Q$ is known and the boundary solution $a$ is exact, but the
+estimator substitutes $r_j \equiv 1$. With
+$\kappa = r_{\max}/r_{\min}$ over present classes, the instance recovery
+rate $\sum_j \min(\widehat\pi_j, \pi_j)$ is at least $1/\kappa$.
+\end{corollary}
+
+\begin{proof}
+The estimate is $q_j = a_j/A$ with $A=\sum_k a_k$, while
+$\pi_j = (a_j/r_j)/Z$ with $Z = \sum_k a_k/r_k$. Hence
+$q_j/\pi_j = r_j Z/A$, and $Z/A$ is a weighted average of the $1/r_k$, so
+$Z/A \ge 1/r_{\max}$. Thus $q_j \ge \pi_j/\kappa$, so
+$\min(q_j,\pi_j) \ge \pi_j/\kappa$; summing gives the claim.
+\end{proof}
+
+Theorem~\ref{thm:general} is \emph{not} an attack: $r$ and $Q$ are oracle
+inputs. Its role is to supply an upper bound against which
+Theorem~\ref{thm:closed} can be measured, with
+Corollary~\ref{cor:kappa} bounding the gap. Together the three results form a
+ladder: the closed form is the deployable estimator, the generalized form is
+the ceiling, and the corollary certifies that the distance between them
+degrades gracefully rather than collapsing.
+
+% ============================================================================
+\section{How VLI$^*$ clears each barrier}
+
+\begin{center}
+\begin{tabular}{p{4.3cm}p{4.0cm}p{5.2cm}}
+\toprule
+Barrier & Who it stops & How VLI$^*$ avoids it \\
+\midrule
+Lemma~\ref{lem:norm}: $\|G\|_1 \le 2nL_{\mathrm{train}}$
+  & every method
+  & only the ratio $G_j/G_{\max}$ is used (Prop.~\ref{prop:invariance}); the
+    common factor cancels \\
+\addlinespace
+Thm~\ref{thm:collapse}: $\widehat\pi \to \Phi(c)$
+  & LLG$^+$, ZLG$^+$, RLU
+  & no external $c$ exists; the error scale is read from $G_{\max}$ inside
+    the window \\
+\addlinespace
+Prop.~\ref{prop:gap}: $\bar\epsilon_{\mathrm{aux}}/\bar\epsilon_{\mathrm{train}}\to\infty$
+  & LLG$^+$, ZLG$^+$, RLU
+  & no auxiliary magnitude is referenced; the optional $(r,Q)$ of
+    Thm~\ref{thm:general} are normalized, so $\bar\epsilon$ cancels from them
+    by construction \\
+\addlinespace
+Prop.~\ref{prop:jensen}: Jensen gap $e^{\sigma^2/2}$
+  & RLU
+  & no softmax of averaged logits is formed \\
+\addlinespace
+Prop.~\ref{prop:lip}: $R$ not Lipschitz
+  & RLU, ZLG$^+$
+  & clipping and renormalization are unnecessary
+    (Prop.~\ref{prop:props}(i)--(ii)); the defensive repair
+    $\Pi_{\simplex}$ is non-expansive and additive, matching
+    Prop.~\ref{prop:props}(iii) \\
+\addlinespace
+Vanishing denominator $\nabla W/\nabla b$
+  & iLRG
+  & the bias gradient is never used as a divisor \\
+\addlinespace
+Hand-tuned constants
+  & VLI heuristic
+  & the signal-matched diagonal
+    $\mathrm{boost}^\star = (C-1)G_{\max}/\sum_j\pos{-G_j}$ is derived, and
+    under Assumption~\ref{ass:sym} peeling with it reproduces
+    \eqref{eq:closed} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The trade being made should be stated plainly. The baselines model the error
+geometry \emph{better} --- they measure confusion and posteriors from data ---
+but pay for it with scale dependence. VLI$^*$ models the geometry
+\emph{worse}, by Assumption~\ref{ass:sym}, but is scale-free. The claim of
+this report is not that Assumption~\ref{ass:sym} is true. It is that
+
+\begin{quote}
+a misspecified but scale-invariant model outperforms a better-specified but
+scale-dependent one, because geometry misspecification is \emph{bounded}
+(Corollary~\ref{cor:kappa}, Proposition~\ref{prop:weak}) whereas scale
+collapse is \emph{total} (Theorem~\ref{thm:collapse}).
+\end{quote}
+
+This is structurally the argument that explains Naive Bayes: its conditional
+independence assumption is essentially always violated, yet the classifier
+performs well because the decision rule depends only on an ordering, not on
+calibrated probabilities. Here, by Proposition~\ref{prop:props}(iii), the
+estimator depends only on differences of $\mathrm{raw}$, so a wrong $Q$ is
+harmless as long as the affine relation between $G$ and $N$ is preserved.
+
+% ============================================================================
+\section{Numerical verification}
+\label{sec:numerics}
+
+\paragraph{What these tables are.} Every number below is computed on the
+generative model implied by Lemma~\ref{lem:identities}: given counts $N$, a
+difficulty vector $r$, a confusion matrix $Q$ and a scale $\bar\epsilon$, we
+form $a_j = N_jr_j\bar\epsilon$, set $G = -(I-Q^T)a$ exactly, and pass $G$ to
+the implementation. They therefore verify the algebra of
+Theorems~\ref{thm:closed} and~\ref{thm:general} and measure sensitivity to
+controlled violations of Assumption~\ref{ass:sym}. \textbf{They are not
+experiments on a trained network} and must not be read as such; an empirical
+study requires checkpoints at several accuracy levels and is future work
+(Section~\ref{sec:limits}).
+
+\paragraph{Exactness and scale invariance.}
+With $C=4$, $N=(6,4,2,0)$, uniform $Q$, $r\equiv1$, the recovered counts are
+$(6,4,2,0)$ exactly, and remain so as $\bar\epsilon$ --- hence the whole
+signal --- is driven to zero over seven orders of magnitude, confirming
+Proposition~\ref{prop:invariance}.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+$\bar\epsilon$ & $\|G\|_1$ & recovered counts \\
+\midrule
+$5\times10^{-1}$ & $5.33\times10^{0}$  & $(6,4,2,0)$ \\
+$1\times10^{-1}$ & $1.07\times10^{0}$  & $(6,4,2,0)$ \\
+$1\times10^{-3}$ & $1.07\times10^{-2}$ & $(6,4,2,0)$ \\
+$1\times10^{-8}$ & $1.07\times10^{-7}$ & $(6,4,2,0)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Proposition~\ref{prop:lip} measured.} Maximum observed
+amplification $\|f(a)-f(b)\|/\|a-b\|$ over $2\times10^5$ random pairs:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Map & Maximum amplification \\
+\midrule
+$\Pi_{\simplex}$ (projection, used by VLI$^*$) & $1.00$ \\
+$R$ (clip-and-renormalize, used by RLU, ZLG$^+$) & $44\,437.19$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Structured confusion.} $C=10$,
+$N=(120,90,70,50,30,20,10,5,0,0)$, $r\equiv1$, and $Q$ built from confusable
+pairs with strength $s$ ($s=1/(C-1)\approx0.111$ is uniform). This is the
+most consequential violation, since real models do confuse specific pairs.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+pair strength $s$ & instance recovery \\
+\midrule
+$0.111$ (uniform) & $1.000$ \\
+$0.200$ & $0.982$ \\
+$0.300$ & $0.962$ \\
+$0.500$ & $0.884$ \\
+$0.700$ & $0.734$ \\
+$0.900$ & $0.638$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Proposition~\ref{prop:weak} verified.} With the same $C=10$ and
+pair-structured $Q$, but present classes carrying equal counts and the two
+absent classes forming a complete pair, recovery is exact for every strength
+tested, despite $Q$ being maximally non-uniform:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+configuration & $s=0.3$ & $s=0.9$ \\
+\midrule
+balanced present, absent pair intact & $1.000$ & $1.000$ \\
+balanced present, pairs split across present/absent & $0.964$ & $0.864$ \\
+mildly imbalanced present, pair intact & $0.985$ & $0.667$ \\
+strongly imbalanced present, pair intact & $0.940$ & $0.530$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The residual of~\eqref{eq:flow} predicts the loss.} Over $400$
+random configurations (varying $N$, number of present classes, and
+$Q \in \{\text{uniform}, \text{paired}, \text{cyclic}\}$), let
+$\mathrm{defect} = \|Q^Ta - (\one^Ta\,\one - a)/(C-1)\|_2/\|a\|_2$. The
+correlation between defect and recovery is $-0.873$, and a zero defect was
+exact in all $138$ cases where it occurred, as Proposition~\ref{prop:weak}
+predicts.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+defect range & count & mean instance recovery \\
+\midrule
+$0$ (exactly) & $138$ & $1.000$ \\
+$(0,\,0.05)$  & $17$  & $0.958$ \\
+$[0.05,\,0.1)$ & $39$ & $0.917$ \\
+$[0.1,\,0.3)$ & $65$  & $0.832$ \\
+$[0.3,\,\infty)$ & $141$ & $0.716$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Difficulty spread, against Corollary~\ref{cor:kappa}.} Uniform
+$Q$, $r$ linearly spread, estimator using $r\equiv1$. The corollary's bound
+is correct but very loose; the realized degradation is far gentler.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+$\kappa$ & instance recovery & bound $1/\kappa$ \\
+\midrule
+$1.00$  & $1.000$ & $1.000$ \\
+$1.39$  & $0.965$ & $0.720$ \\
+$1.78$  & $0.934$ & $0.562$ \\
+$3.33$  & $0.853$ & $0.300$ \\
+$8.00$  & $0.744$ & $0.125$ \\
+$39.11$ & $0.635$ & $0.026$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Perturbation of the anchor.} Gaussian noise of standard deviation
+$\sigma\cdot\|G\|_\infty$ added to $G$, $2000$ repetitions. The last column
+reports how often the noise moves $\argmax_j G_j$ onto a \emph{present}
+class, which destroys the thermometer interpretation of $G_{\max}$.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+$\sigma$ & instance recovery & anchor lands on a present class \\
+\midrule
+$0\%$  & $1.000$ & $0.0\%$ \\
+$1\%$  & $0.991$ & $0.0\%$ \\
+$5\%$  & $0.954$ & $8.6\%$ \\
+$10\%$ & $0.914$ & $22.6\%$ \\
+$25\%$ & $0.820$ & $44.0\%$ \\
+$50\%$ & $0.722$ & $53.4\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Absent-class requirement.} When no class is absent the formula is
+forced to zero its $\argmax$ coordinate, so the smallest present class is
+sacrificed. The penalty therefore scales with that class's share of $n$, not
+with absence itself: for the long-tailed $C=10$ configuration above, removing
+the absent classes entirely still yields $0.975$, whereas a small
+near-balanced window suffers considerably more. A perfectly balanced window
+under Assumption~\ref{ass:sym} gives $G \equiv 0$, and the implementation
+correctly refuses rather than returning a fabricated answer.
+
+% ============================================================================
+\section{Limitations and threats to validity}
+\label{sec:limits}
+
+\begin{enumerate}
+\item \textbf{$(r,Q)$ are oracle inputs.} Theorem~\ref{thm:general} assumes
+  them known. That $\bar\epsilon$ cancels from both by construction
+  (Section~\ref{sec:notation}) is a reason to expect them to transfer from
+  auxiliary to training data better than the absolute magnitudes used by the
+  baselines, but this is a motivated hypothesis, not a theorem, and must be
+  measured. The gap between $0.638$ and $1.000$ in the
+  structured-confusion table is the quantitative value of solving it.
+
+\item \textbf{$\kappa$ grows with training.} Since $r_j = \bar\epsilon_j/\bar\epsilon$
+  is a ratio, $\bar\epsilon$ cancels, but the \emph{spread} of $r$ need not
+  be stable: easy classes may reach $\bar\epsilon_j\approx10^{-6}$ while hard
+  ones remain at $10^{-2}$, giving $\kappa \approx 10^4$ where an
+  undertrained model has $\kappa \approx 2$. The regime in which VLI$^*$
+  wins is thus also the regime in which Assumption~\ref{ass:sym} is least
+  accurate. This is the central tension of the approach and should be
+  reported, not hidden; it is directly measurable from checkpoints at
+  increasing accuracy.
+
+\item \textbf{The anchor is a single coordinate.} $G_{\max}$ carries the
+  whole scale calibration, so moderate additive noise --- of the kind a
+  differentially private or compressed update would introduce --- degrades
+  VLI$^*$ more than it would an estimator averaging over coordinates. This
+  suggests the natural defence: perturbation sufficient to hide which class
+  is absent, rather than strong privacy noise.
+
+\item \textbf{Reading the gradient is a white-box convenience.} The
+  identities require the cross-entropy gradient. An implementation that reads
+  the parameter's gradient buffer before the optimizer step obtains exactly
+  that, but a real server observes an accumulated weight update, which under
+  momentum, weight decay, or several local steps is not $\sum_i(p_i-e_{y_i})$.
+  Zero momentum is a requirement of the derivation, not a convenience.
+
+\item \textbf{Proximal and dynamic regularizers break the signal.} A FedProx
+  term contributes $\mu(b-b_g)$ to the bias gradient, which is neither
+  zero-sum nor of the form~\eqref{eq:system}; both~\eqref{eq:zerosum} and the
+  $G_{\max}$ anchor then fail. The closed form should be restricted to plain
+  FedAvg, and the heuristic's apparent operation under FedProx has no
+  theoretical basis.
+
+\item \textbf{Aggregation.} If the server observes only an average over
+  several clients, all methods in this report recover the union of their
+  labels, not a per-client decomposition.
+
+\item \textbf{Numerics are model-based.} As stated in
+  Section~\ref{sec:numerics}, the tables evaluate the generative model, not a
+  trained network. The empirical programme that would complete this report
+  is: produce checkpoints spanning a range of training accuracies; measure
+  $\bar\epsilon_{\mathrm{train}}$, $\bar\epsilon_{\mathrm{aux}}$, $\kappa$
+  and $Q$ on each; verify Lemma~\ref{lem:norm} and
+  Proposition~\ref{prop:gap} directly; and plot instance recovery against
+  $\bar\epsilon_{\mathrm{train}}$ for all methods, reporting separately the
+  fraction of windows containing an absent class.
+\end{enumerate}
+
+% ============================================================================
+\begin{thebibliography}{9}
+\bibitem{ilrg} J.~Ma et al.
+  \emph{Instance-wise Batch Label Restoration via Gradients in Federated
+  Learning}. ICLR, 2023.
+\bibitem{llg} A.~Wainakh et al.
+  \emph{User-Level Label Leakage from Gradients in Federated Learning}.
+  arXiv:2105.09369, 2021.
+\bibitem{zlg} J.~Geng et al.
+  \emph{Towards General Deep Leakage in Federated Learning}.
+  arXiv:2110.09074, 2021.
+\bibitem{rlu} H.~Chen and H.~Vikalo.
+  \emph{Recovering Labels from Local Updates in Federated Learning}.
+  ICML, 2024.
+\bibitem{duchi} J.~Duchi, S.~Shalev-Shwartz, Y.~Singer and T.~Chandra.
+  \emph{Efficient Projections onto the $\ell_1$-Ball for Learning in High
+  Dimensions}. ICML, 2008.
+\bibitem{nb} P.~Domingos and M.~Pazzani.
+  \emph{On the Optimality of the Simple Bayesian Classifier under Zero-One
+  Loss}. Machine Learning, 29:103--130, 1997.
+\end{thebibliography}
+
+\end{document}

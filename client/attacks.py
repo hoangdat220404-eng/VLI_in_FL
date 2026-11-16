@@ -85,7 +85,7 @@ def _as_numpy_vector(vector):
 
 
 def VLI_star_closed_form(gradients_for_prediction, args=None, n_samples=None,
-                         return_diagnostics=False):
+                         return_diagnostics=False, gmax=None, gmax_quantile=None):
     """Closed-form VLI* under symmetric class difficulty and uniform confusion.
 
     The input must be the C-dimensional *bias-gradient* signal G, up to any
@@ -101,7 +101,16 @@ def VLI_star_closed_form(gradients_for_prediction, args=None, n_samples=None,
     if n_samples <= 0 or signal.size < 2:
         raise ValueError("VLI* requires n_samples > 0 and at least two classes")
 
-    g_max = float(np.max(signal))
+    if gmax is not None:
+        g_max, g_max_mode = float(gmax), "given"
+    elif gmax_quantile is not None:
+        positive = signal[signal > 0.0]
+        if positive.size == 0:
+            raise ValueError("no positive gradient component for the quantile divisor")
+        g_max = float(np.quantile(positive, gmax_quantile))
+        g_max_mode = "quantile=%g" % gmax_quantile
+    else:
+        g_max, g_max_mode = float(np.max(signal)), "max"
     scale = max(float(np.max(np.abs(signal))), np.finfo(np.float64).tiny)
     if g_max <= np.finfo(np.float64).eps * scale * 16:
         raise ValueError(
@@ -115,6 +124,7 @@ def VLI_star_closed_form(gradients_for_prediction, args=None, n_samples=None,
         return counts, {
             "raw_counts": raw,
             "g_max": g_max,
+            "g_max_mode": g_max_mode,
             "sum_gradient": float(signal.sum()),
             "projected": bool(np.any(raw < 0)),
         }
