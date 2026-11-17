@@ -10,7 +10,7 @@ import torch
 from client.client_utils import estimate_static_RLU, estimated_entropy_from_grad, estimate_static_RLU_with_posterior
 from client.client_utils import estimate_static_LLG,estimate_static_ZLG
 from client.client_utils import create_synthetic_basis_matrix, calculate_distribution_ratios, estimate_static_VLI, estimate_static_VLI_RLU, calculate_dynamic_boost
-from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form
+from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form, rlu_diag_print
 
 import torch.nn.functional as F
 
@@ -241,6 +241,8 @@ class Client(object):
                                                 self.args.batch_size * self.args.local_epochs)
                 new_shift_softmax = estimate_static_RLU_with_posterior(self.args, n, self.mu, new_mu, self.O)
                 n = estimated_entropy_from_grad(self.args, new_shift_softmax*rho_mean,b_grad_epochs.detach().cpu().tolist(), self.args.batch_size*self.args.local_epochs)
+                if getattr(self.args, 'rlu_diag', False):
+                    rlu_diag_print(self.args, self.O, b_grad_epochs, new_mu, new_shift_softmax, rho_mean)
                 class_existences = [1 if n[i] > 0 else 0 for i in range(len(n))]
                 existences = [1 if num_instances[i] > 0 else 0 for i in range(len(num_instances))]
 
@@ -515,7 +517,12 @@ class Client(object):
                     G = b_grad_epochs.detach().cpu().numpy().copy()
                     n_w = self.args.batch_size * self.args.local_epochs
                     absent = num_instances == 0
-                    out = ['irec_max=%.4f' % irec, 'n_absent=%d' % int(absent.sum())]
+                    out = ['irec_active[%s]=%.4f' % (_gmode, irec), 'n_absent=%d' % int(absent.sum())]
+                    try:
+                        _pmax = VLI_star_closed_form(G, n_samples=n_w)
+                        out.append('irec_MAX=%.4f' % (np.minimum(_pmax, num_instances).sum() / n_w))
+                    except ValueError:
+                        out.append('irec_MAX=nan')
                     if int(absent.sum()) >= 2:
                         g_abs = G[absent]
                         out.append('b=%.4f' % (float(g_abs.max() / g_abs.mean()) - 1.0))
@@ -528,7 +535,14 @@ class Client(object):
                     out.append('n_pos=%d' % pos.size)
                     rules = []
                     if pos.size:
-                        rules = [('MEAN+', float(pos.mean())), ('MED+', float(np.median(pos)))]
+                        _gmx, _mp = float(G.max()), float(pos.mean())
+                        out.append('bhat=%.4f' % (_gmx / _mp - 1.0))
+                        out.append('pi50=%.3f' % float((pos >= 0.5 * _gmx).mean()))
+                        out.append('pi80=%.3f' % float((pos >= 0.8 * _gmx).mean()))
+                        out.append('cond=%.3f' % float(np.abs(G).max() / _gmx))
+                        rules = [('MEAN+', _mp), ('MED+', float(np.median(pos))),
+                                 ('B75', 0.75 * _gmx + 0.25 * _mp),
+                                 ('B50', 0.50 * _gmx + 0.50 * _mp)]
                     for tag, gval in rules:
                         try:
                             pr = VLI_star_closed_form(G, n_samples=n_w, gmax=gval)
@@ -700,10 +714,14 @@ class Client(object):
         self.model.train()
 
         #Initilize variables
-        methods = ['RLU', 'LLGp', 'ZLGp', 'VLI', 'LLG']
-        average_acc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0, 'LLG': 0.0}
-        average_irec = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0,'LLG': 0.0}
-        average_cAcc = {'RLU' : 0.0, 'LLGp': 0.0, 'ZLGp': 0.0, 'VLI': 0.0, 'LLG': 0.0}
+        methods = ['iRLG', 'RLU', 'LLGp', 'ZLGp', 'LLG', 'VLI',
+                   'VLI*max', 'VLI*mean+', 'VLI*med+']
+        if getattr(self.args, 'vli_star_diag', False):
+            methods.append('VLI*ORACLE')      # DUNG NHAN THAT - chi la chan tren, khong phai tan cong
+        average_acc = {m: 0.0 for m in methods}
+        average_irec = {m: 0.0 for m in methods}
+        average_cAcc = {m: 0.0 for m in methods}
+        count_m = {m: 0 for m in methods}     # dem rieng: mot cua so hong chi bo qua phuong phap do
         count_computed = 0
         count = 0
         b_grad_epochs = torch.zeros([self.args.n_classes])
@@ -751,6 +769,7 @@ class Client(object):
 
             if count == self.args.local_epochs:
                 targets_epochs = torch.cat(targets_epochs, dim=0)
+                targets_tensor = targets_epochs            # iRLG can dang tensor
                 targets_epochs = targets_epochs.tolist()
                 num_instances = np.zeros(self.args.n_classes)
                 for k in range(self.args.n_classes):
@@ -763,6 +782,12 @@ class Client(object):
                 result_irec = {}
                 result_cAcc = {}
 
+                def _ghi(tag, pred):
+                    result_Acc[tag], result_irec[tag], result_cAcc[tag] =                         self.accuracy_calculation(pred, existences, num_instances)
+
+                def _bo(tag, exc):
+                    print('  [%s] bo qua cua so nay: %s' % (tag, exc))
+
                 result_Acc['RLU'], result_irec['RLU'], result_cAcc['RLU'] = self.accuracy_calculation(RLU_attack(model = copy.deepcopy(self.model) , w_grad_epochs = w_grad_epochs, b_grad_epochs =  b_grad_epochs, latent_dim =  self.latent_dim, mu =  self.mu,  aux_dataset = self.aux_dataset, args =  self.args), existences, num_instances)
                 result_Acc['ZLGp'], result_irec['ZLGp'], result_cAcc['ZLGp'] = self.accuracy_calculation(ZLGp_attack(model = copy.deepcopy(self.model), gradients_for_prediction =  torch.sum(w_grad_epochs, dim=-1), O_bar = O_bar , pj = pj, aux_dataset = self.aux_dataset, args = self.args), existences, num_instances)
                 result_Acc['LLGp'], result_irec['LLGp'], result_cAcc['LLGp'] = self.accuracy_calculation(LLGp_attack(model = copy.deepcopy(self.model), gradients_for_prediction = torch.sum(w_grad_epochs, dim=-1), impact = impact, offset = offset, aux_dataset = self.aux_dataset,args = self.args), existences, num_instances)
@@ -770,15 +795,66 @@ class Client(object):
 
                 result_Acc['LLG'], result_irec['LLG'], result_cAcc['LLG'] = self.accuracy_calculation(LLG_attack(model = copy.deepcopy(self.model), gradients_for_prediction = torch.sum(w_grad_epochs, dim=-1), args = self.args), existences, num_instances)
 
+                # ---------- iRLG ----------
+                # Khop Client.iRLG: post_process_emb chay tren GLOBAL weights, nen dung
+                # mot ban sao da nap global_weights de khong lam ban model cho cac tan cong khac.
+                try:
+                    _m_irlg = copy.deepcopy(self.model)
+                    _m_irlg.load_state_dict(global_weights)
+                    cls_rec_probs = []
+                    for i in range(self.args.n_classes):
+                        cls_rec_emb = get_emb(w_grad_epochs[i], b_grad_epochs[i])
+                        cls_rec_probs.append(post_process_emb(embedding=cls_rec_emb,
+                                                              model=_m_irlg,
+                                                              device=self.device,
+                                                              alpha=1))
+                    _res, _met = get_irlg_res(cls_rec_probs=cls_rec_probs,
+                                              b_grad=b_grad_epochs,
+                                              gt_label=targets_tensor,
+                                              num_classes=self.args.n_classes,
+                                              num_images=self.args.batch_size * self.args.local_epochs,
+                                              simplified=False)
+                    # get_irlg_res tra ve metrics = [LeAcc, acc, irec] (nhu Client.iRLG)
+                    result_Acc['iRLG'], result_irec['iRLG'], result_cAcc['iRLG'] = _met[1], _met[2], _met[0]
+                    del _m_irlg
+                except Exception as _e:
+                    _bo('iRLG', _e)
+
+                # ---------- VLI* : cac che do mau so ----------
+                # Dung TONG bias-grad (nhan lai local_epochs) de khop tin hieu cua Client.VLI_star.
+                # Cong thuc (n/C)(1 - G/G*) bat bien theo ti le nen moi mau so deu hop le.
+                _Gs = b_grad_epochs * self.args.local_epochs
+                _Gnp = _Gs.detach().cpu().numpy()
+                _pos = _Gnp[_Gnp > 0.0]
+                _che_do = [('VLI*max', None)]
+                if _pos.size:
+                    _che_do.append(('VLI*mean+', float(_pos.mean())))
+                    _che_do.append(('VLI*med+', float(np.median(_pos))))
+                else:
+                    _bo('VLI*mean+/med+', 'khong co thanh phan gradient duong')
+                if getattr(self.args, 'vli_star_diag', False):
+                    _absent = num_instances == 0
+                    if int(_absent.sum()) >= 2:
+                        _che_do.append(('VLI*ORACLE', float(_Gnp[_absent].mean())))
+                for _tag, _gv in _che_do:
+                    try:
+                        _ghi(_tag, VLI_star_closed_form(_Gs, args=self.args, gmax=_gv))
+                    except Exception as _e:
+                        _bo(_tag, _e)
+
                 for m in methods:
+                    if m not in result_irec:
+                        continue
                     average_acc[m] += result_Acc[m]
                     average_cAcc[m] += result_cAcc[m]
                     average_irec[m] += result_irec[m]
+                    count_m[m] += 1
                 
                 print("="*60)
-                print(f"{'Method':<10} | {'cAcc':<11} | {'irec':<11}")
+                print(f"{'Method':<12} | {'cAcc':<11} | {'irec':<11}")
                 for m in methods:
-                    print(f"{m:<10} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
+                    if m in result_irec:
+                        print(f"{m:<12} | {result_cAcc[m]:10.4f} | {result_irec[m]:10.4f}")
 
                 b_grad_epochs = torch.zeros([self.args.n_classes])
                 w_grad_epochs = torch.zeros([self.args.n_classes, self.latent_dim])
@@ -786,16 +862,28 @@ class Client(object):
                 self.load_model(global_weights)
 
         for m in methods:
-            average_acc[m] = average_acc[m]/ count_computed 
-            average_cAcc[m] = average_cAcc[m]/count_computed
-            average_irec[m] = average_irec[m]/count_computed
-        
-        
-        print(f"{'Method':<10} | {'cAcc':<10} | {'irec':<11}")
-        for m in methods:
-            print(f"{m:<10} | {average_cAcc[m]:10.4f} | {average_irec[m]:10.4f}")
+            if count_m[m]:
+                average_acc[m] = average_acc[m] / count_m[m]
+                average_cAcc[m] = average_cAcc[m] / count_m[m]
+                average_irec[m] = average_irec[m] / count_m[m]
 
-        return average_cAcc, average_irec
+        da_do = [m for m in methods if count_m[m]]
+        bo_qua = [(m, count_computed - count_m[m]) for m in methods
+                  if count_m[m] and count_m[m] < count_computed]
+        hong = [m for m in methods if not count_m[m]]
+
+        print("=" * 60)
+        print(f"Trung binh tren {count_computed} cua so")
+        print(f"{'Method':<12} | {'cAcc':<10} | {'irec':<11}")
+        for m in da_do:
+            print(f"{m:<12} | {average_cAcc[m]:10.4f} | {average_irec[m]:10.4f}")
+        for m, k in bo_qua:
+            print(f"  (!) {m}: tinh duoc {count_m[m]}/{count_computed} cua so, bo qua {k}")
+        for m in hong:
+            print(f"  (!) {m}: khong tinh duoc cua so nao -> khong bao cao")
+
+        return ({m: average_cAcc[m] for m in da_do},
+                {m: average_irec[m] for m in da_do})
 
     def local_training(self, global_epoch):
         for epoch in range(self.args.local_epochs):

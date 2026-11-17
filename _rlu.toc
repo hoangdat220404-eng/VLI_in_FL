@@ -1,0 +1,28 @@
+\babel@toc {vietnamese}{}\relax 
+\contentsline {section}{\numberline {1}Ký hiệu và thiết lập}{2}{section.1}%
+\contentsline {paragraph}{Tập phụ trợ.}{2}{section*.2}%
+\contentsline {paragraph}{Thước đo.}{2}{section*.3}%
+\contentsline {section}{\numberline {2}Dạng chuẩn: bốn phương pháp, một hình}{2}{section.2}%
+\contentsline {section}{\numberline {3}Chặn bẫy: định lý trung tâm}{3}{section.3}%
+\contentsline {section}{\numberline {4}Ba phương pháp dùng phụ trợ: định lượng}{3}{section.4}%
+\contentsline {subsection}{\numberline {4.1}ZLG\textsuperscript {+}: tâm nở ra trong khi tín hiệu co}{3}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}RLU: tâm \emph {là} phụ trợ, mẫu số \emph {không} phụ trợ}{4}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}LLG\textsuperscript {+}: chết ở hai dòng}{5}{subsection.4.3}%
+\contentsline {paragraph}{Cảnh báo về phép thử.}{6}{section*.4}%
+\contentsline {paragraph}{Phép đo kết thúc tranh luận.}{6}{section*.5}%
+\contentsline {section}{\numberline {5}Lỗ duy nhất còn lại: trọng số đặc trưng $w_i$}{6}{section.5}%
+\contentsline {paragraph}{Cùng một số, hai vai trò ngược nhau.}{7}{section*.6}%
+\contentsline {section}{\numberline {6}VLI\textsuperscript {$*$}: vì sao không sụp đổ cùng cách}{7}{section.6}%
+\contentsline {section}{\numberline {7}VLI\textsuperscript {$*$} ở $C$ lớn: luật co rút và bản sửa}{7}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Luật co rút}{8}{subsection.7.1}%
+\contentsline {paragraph}{Vì sao $b$ lớn ở $C$ lớn.}{8}{section*.7}%
+\contentsline {subsection}{\numberline {7.2}Kiểm chứng luật co rút}{8}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Bản sửa: đổi mẫu số}{9}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Điều kiện áp dụng --- và vì sao không có quy tắc phổ quát}{9}{subsection.7.4}%
+\contentsline {paragraph}{Quy tắc dùng được.}{9}{section*.8}%
+\contentsline {section}{\numberline {8}Cách báo cáo: dùng $\lambda $, không dùng irec thô}{10}{section.8}%
+\contentsline {paragraph}{Bỏ cAcc cho VLI\textsuperscript {$*$} ở $C$ lớn.}{10}{section*.9}%
+\contentsline {section}{\numberline {9}Bảng trạng thái}{10}{section.9}%
+\contentsline {paragraph}{Tiên đoán khả phủ chứng.}{11}{section*.10}%
+\contentsline {section}{\numberline {A}Bản đồ mã nguồn}{11}{appendix.A}%
+\contentsline {paragraph}{Tái lập.}{11}{section*.11}%

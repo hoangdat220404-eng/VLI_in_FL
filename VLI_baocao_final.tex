@@ -1,0 +1,943 @@
+% ============================================================================
+%  BAO CAO CUOI: CO CHE SUP DO CUA TAN CONG DUNG THONG KE PHU TRO
+%                va CACH VLI* HOAT DONG
+%
+%  File NAY DOC LAP voi VLI_baocao_vi.tex va VLI_cochesupdo_vi.tex.
+%
+%  NGUYEN TAC GHI NHAN: moi khang dinh deu co nhan trang thai kiem chung.
+%     [CM] chung minh duoc bang dai so
+%     [DO] do tren du lieu that, co checkpoint (ghi ro cau hinh)
+%     [MP] mo phong tren mo hinh sinh, bam dung thu tu phep toan trong ma nguon
+%          -> KHONG phai bang chung, chi minh hoa mot co che dai so
+%     [CD] chua do
+%
+%  Compile:  pdflatex VLI_baocao_final.tex   (chay 3 lan)
+% ============================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T5]{fontenc}
+\else
+  \usepackage{fontspec}
+\fi
+\usepackage[vietnamese]{babel}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{dinhly}{Định lý}
+\newtheorem{bode}[dinhly]{Bổ đề}
+\newtheorem{menhde}[dinhly]{Mệnh đề}
+\newtheorem{hequa}[dinhly]{Hệ quả}
+\newtheorem{dinhnghia}[dinhly]{Định nghĩa}
+\theoremstyle{remark}
+\newtheorem{nhanxet}[dinhly]{Nhận xét}
+\renewcommand{\proofname}{Chứng minh}
+
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\pos}[1]{\left[#1\right]_+}
+\newcommand{\quant}{\mathcal{Q}}
+\newcommand{\epstr}{\bar\varepsilon_{\mathrm{tr}}}
+\newcommand{\epsaux}{\bar\varepsilon_{\mathrm{aux}}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\CM}{\textsf{[CM]}}
+\newcommand{\DO}{\textsf{[ĐO]}}
+\newcommand{\MP}{\textsf{[MP]}}
+\newcommand{\CD}{\textsf{[CĐ]}}
+
+\renewcommand{\arraystretch}{1.22}
+\emergencystretch=3em
+\sloppy
+
+\title{Cơ chế sụp đổ của tấn công khôi phục nhãn dùng thống kê phụ trợ,\\[0.35em]
+và vì sao VLI\textsuperscript{$*$} không sụp đổ cùng cách}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Báo cáo này gộp ba việc. \emph{Thứ nhất}, đưa bốn tấn công khôi phục nhãn
+(ZLG\textsuperscript{+}, RLU, LLG\textsuperscript{+}, VLI\textsuperscript{$*$})
+về một \emph{dạng chuẩn} chung và chứng minh một chặn phi tiệm cận --- gọi là
+\emph{chặn bẫy} --- nói rằng đầu ra của ba phương pháp đầu bị nhốt trong một
+lân cận của một tâm \emph{không phụ thuộc nhãn}, với bán kính co về 0 khi mô
+hình được huấn luyện tốt. \emph{Thứ hai}, chỉ ra VLI\textsuperscript{$*$} không
+nằm trong lớp đó, vì sai số $\bar\varepsilon$ triệt tiêu chính xác trong dạng
+đóng của nó. \emph{Thứ ba}, trình bày một suy giảm \emph{khác hẳn} mà
+VLI\textsuperscript{$*$} thật sự gặp ở số lớp lớn --- một \emph{luật co rút về
+mức đều} --- cùng bản sửa một dòng đạt đúng trần oracle, và điều kiện áp dụng
+của bản sửa đó.
+
+\medskip\noindent
+\textbf{Quy ước ghi nhận.} Mỗi khẳng định mang một nhãn: \CM{} chứng minh được;
+\DO{} đo trên dữ liệu thật kèm checkpoint; \MP{} mô phỏng trên mô hình sinh bám
+đúng thứ tự phép toán trong mã nguồn --- \emph{không} phải bằng chứng, chỉ minh
+họa một cơ chế đại số; \CD{} chưa đo. Mọi bảng đều ghi rõ nhãn của từng cột.
+\end{abstract}
+
+\tableofcontents
+\medskip
+
+% ===========================================================================
+\section{Ký hiệu và thiết lập}
+% ===========================================================================
+
+Một \emph{cửa sổ} gồm $m$ bước SGD cục bộ, mỗi bước một batch kích thước $B$;
+tổng số nhãn bị tấn công là $n=mB$. $C$ là số lớp. Tầng cuối là
+\code{model.fc}; kẻ tấn công đọc cập nhật tích lũy của tầng này:
+$\Delta W\in\mathbb{R}^{C\times D}$ và $\Delta b\in\mathbb{R}^{C}$.
+
+Với mẫu $i$ có nhãn $y_i$ và phân bố dự đoán $p_i$, đặt
+\[
+  r_i \;=\; p_i-e_{y_i},\qquad
+  \varepsilon_i \;=\; 1-p_{i,y_i},\qquad
+  \|r_i\|_1 \;=\; 2\varepsilon_i .
+\]
+Đặt $\epstr=\frac1n\sum_{i}\varepsilon_i$ (trên dữ liệu client) và $\epsaux$
+(trên tập phụ trợ). $N\in\mathbb{Z}_{\ge0}^C$ là vectơ số lượng nhãn thật,
+$\sum_j N_j=n$; $\hat N$ là ước lượng.
+
+\paragraph{Tập phụ trợ.} Tập phụ trợ là một phần $\code{--prop}$ của mỗi lớp
+trong \textbf{tập kiểm tra} (\code{main.py:109}). Mô hình được huấn luyện trên
+tập huấn luyện, nên
+\[
+  \epsaux \;>\; \epstr \qquad \text{và khoảng cách này nở ra khi quá khớp.}
+\]
+Đây là nguồn gốc của mọi thứ sau đây.
+
+\paragraph{Thước đo.} \emph{irec} $=\frac1n\sum_j\min(\hat N_j,N_j)$;
+\emph{cAcc} là độ chính xác của bài toán nhị phân ``lớp $j$ có mặt hay không''.
+Báo cáo này nhắm vào \emph{irec}; Mục~\ref{sec:baocao} giải thích vì sao cAcc
+không nên dùng cho VLI\textsuperscript{$*$} ở $C$ lớn.
+
+% ===========================================================================
+\section{Dạng chuẩn: bốn phương pháp, một hình}
+% ===========================================================================
+
+\begin{menhde}[Dạng chuẩn] \CM\label{md:dangchuan}
+Đặt
+\[
+  R(x) \;=\; \frac{n\,\pos{x}}{\|\pos{x}\|_1}\qquad (x\ge 0,\ x\ne 0),
+  \qquad
+  \quant = \text{làm tròn về số nguyên giữ tổng } n .
+\]
+ZLG\textsuperscript{+}, RLU và VLI\textsuperscript{$*$} đều có dạng
+\[
+  \boxed{\;\hat N \;=\; \quant\!\big(R(c-\beta\Gamma)\big)\;}
+\]
+trong đó $\Gamma$ là \emph{tín hiệu} (đọc từ cập nhật, mang nhãn) và $c$ là
+\emph{tâm} (không đọc cập nhật). LLG\textsuperscript{+} không có $R$ và
+$\quant$; nó bóc tham lam (Mục~\ref{sec:llgp}).
+\end{menhde}
+
+\begin{proof}[Đối chiếu mã nguồn]
+Với RLU, hàm \code{estimated\_entropy\_from\_grad} (\code{client\_utils.py:120})
+thực hiện nguyên văn: \code{bias = -g}; \code{bias += shift}; cắt âm về 0; chia
+chuẩn $\ell_1$; nhân $n$; làm tròn. Với ZLG\textsuperscript{+},
+\code{attacks.py:223--228} tính $\hat N_j^{\text{raw}}=n(\bar p_j-G_j/\bar O)$
+rồi \code{prop}-chuẩn hóa lại về tổng $n$, tức đúng $R$. Với
+VLI\textsuperscript{$*$}, \code{attacks.py:121--122} tính
+$\frac nC(1-G/G_{\max})$ rồi \code{\_integerize\_counts} (gọi
+\code{\_project\_to\_simplex}).
+\end{proof}
+
+\begin{bode}[Tín hiệu có tổng không] \CM\label{bd:tongkhong}
+Với mọi trọng số $w_i\ge0$,
+\[
+  \sum_j\Big(\sum_i w_i r_{i,j}\Big)
+  =\sum_i w_i\sum_j \big(p_{i,j}-\delta_{j,y_i}\big)
+  =\sum_i w_i (1-1)=0.
+\]
+\end{bode}
+
+Đây là một đồng nhất thức softmax, \emph{vô điều kiện}, không cần giả thiết gì
+về mô hình. Nó được dùng ở ba chỗ độc lập về sau: Mệnh đề~\ref{md:bay},
+Nhận xét~\ref{nx:khongchuanhoa}, và Mục~\ref{sec:corut}.
+
+\begin{bode}[Độ lớn tín hiệu] \CM\label{bd:dolon}
+Nếu tín hiệu là gradient bias lấy trung bình qua $m$ bước thì
+$\|\Gamma\|_1\le 2\epstr$. Nếu là tổng theo chiều đặc trưng của gradient trọng
+số thì xem Mục~\ref{sec:low} (có thêm một thừa số).
+\end{bode}
+
+% ===========================================================================
+\section{Chặn bẫy: định lý trung tâm}
+% ===========================================================================
+
+\begin{dinhnghia}[Đại lượng điều khiển] \CM\label{dn:A}
+\[
+  A \;=\; \frac{n\,\beta\|\Gamma\|_1}{\|c\|_1}.
+\]
+\end{dinhnghia}
+
+\begin{menhde}[Chặn bẫy] \CM\label{md:bay}
+Với mọi $c\ge0$, $c\ne0$ và mọi $\Gamma$,
+\[
+  \big\|R(c-\beta\Gamma)-R(c)\big\|_1 \;\le\; A ,
+\]
+dấu bằng xảy ra khi không có toạ độ nào bị cắt. Do đó
+\[
+  \boxed{\;\big\|\hat N-\quant(R(c))\big\|_1 \;\le\; A+C\;}
+\]
+\end{menhde}
+
+\begin{proof}[Ý tưởng]
+Đi dọc đoạn $\varphi(\tau)=R(c-\tau g)$, $\tau\in[0,1]$, $g=\beta\Gamma$, rồi
+chặn tốc độ. Hai sự thật cấu trúc: (i) mẫu số $D(\tau)=\|\pos{c-\tau g}\|_1$
+luôn $\ge L$ với $L$ là giá trị tại điểm cuối; (ii) toạ độ bị cắt luôn có
+$g_j\ge0$, nên phần bị cắt \emph{chỉ làm mẫu số to ra}. Kết hợp với đồng nhất
+thức chính xác $|\sigma|=\|g_{S^c}\|_1$ (với $S$ là tập không bị cắt) cho
+$\|g_S\|_1+|\sigma|=\|g\|_1$ \emph{chính xác}, từ đó tốc độ $\le n\|g\|_1/\|c\|_1$.
+Không cần giả thiết không-bị-cắt.
+\end{proof}
+
+\begin{nhanxet}[Số hạng $+C$] \CM
+$\quant$ làm lệch mỗi toạ độ nhiều nhất 1, nên tổng lệch nhiều nhất $C$. Cần
+phân biệt rõ: \textbf{thang độ sai gây ra lỗi} (ngay trước khi làm tròn);
+\textbf{lượng tử hóa chỉ khóa lỗi lại}. Không nên quy thất bại cho $\quant$.
+\end{nhanxet}
+
+\begin{nhanxet}[Miền khả dĩ] \CM\label{nx:mien}
+Khoảng cách $\ell_1$ lớn nhất từ một tâm gần đều tới một đỉnh của đơn hình
+(nhãn tập trung hết vào một lớp) là $2n(1-1/C)$. Với $C=10$ đó là $1.8n$. Nên
+một chặn $A/n$ loại bỏ được $1-\frac{A/n}{1.8}$ phần miền khả dĩ.
+\end{nhanxet}
+
+% ===========================================================================
+\section{Ba phương pháp dùng phụ trợ: định lượng}
+% ===========================================================================
+
+\begin{table}[htbp]
+\centering
+\caption{Dạng chuẩn của từng phương pháp, đọc trực tiếp từ mã nguồn. \CM}
+\label{tab:dangchuan}
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+ & \textbf{tín hiệu} $\Gamma$ & \textbf{tâm} $c$ & $\|c\|_1$ \\
+\midrule
+ZLG\textsuperscript{+}
+  & $\sum_d\Delta W_{j\cdot}/\bar O$
+  & $n\bar p$ (độ tự tin lớp đúng, aux)
+  & $nC(1-\epsaux)$ \\
+RLU
+  & $\overline{\Delta b}$ (trung bình $m$ bước)
+  & $\bar\rho\cdot\mathrm{softmax}(\texttt{new\_mu})$ (aux)
+  & $\bar\rho$ \\
+LLG\textsuperscript{+}
+  & $\sum_d\Delta W_{j\cdot}$
+  & --- (bóc tham lam, không có $R$)
+  & --- \\
+VLI\textsuperscript{$*$}
+  & $\Delta b$ (tổng $m$ bước)
+  & $\dfrac{n}{C}\one$ \textbf{(không dùng aux)}
+  & $n$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{ZLG\textsuperscript{+}: tâm nở ra trong khi tín hiệu co}
+
+\begin{menhde} \CM\label{md:zlg}
+Với ZLG\textsuperscript{+},
+\[
+  \frac{A}{n}\;\le\;\frac{2\,W\,\epstr}{C(1-\epsaux)},
+  \qquad
+  W=\frac{\sum_i w_i\varepsilon_i}{\sum_i\varepsilon_i},
+  \qquad
+  w_i=\frac{s_i}{\bar O},\quad s_i=\one^\top o_i .
+\]
+\end{menhde}
+
+Hai cần gạt cùng bóp $A$ khi mô hình được huấn luyện tốt lên: tử số
+$\epstr\downarrow$ \emph{và} mẫu số $nC(1-\epsaux)\uparrow$. Đây là phương pháp
+sụp đổ sớm nhất.
+
+\subsection{RLU: tâm \emph{là} phụ trợ, mẫu số \emph{không} phụ trợ}
+\label{sec:rlu}
+
+RLU dùng tập phụ trợ, và dùng rất nhiều. Phải nói rõ chỗ này vì nó dễ bị đọc
+nhầm: điều duy nhất \emph{không} phụ trợ trong RLU là \textbf{hệ số vô hướng}
+$\bar\rho$, tức là \emph{độ dài} của tâm --- chứ không phải cái tâm.
+
+\begin{nhanxet}[RLU chạm aux ở ba chỗ] \CM\label{nx:rluaux}
+\begin{enumerate}
+\item \code{client\_base.py:189}: \code{self.mu, \_ =
+estimate\_static\_RLU(args, model, aux\_dataset)} --- chạy mô hình lên
+\emph{toàn bộ} aux loader, lấy ma trận nhầm lẫn, trả về $\mu_j=$ trung bình
+logit lớp $j$ trên các mẫu aux \emph{không} thuộc lớp $j$.
+\item \code{attacks.py:307} (và \code{client\_base.py:219}): gọi lại
+\code{estimate\_static\_RLU} \emph{mỗi cửa sổ} để lấy \code{new\_mu} theo mô
+hình hiện tại.
+\item \code{attacks.py:308}: \code{new\_shift = softmax(new\_mu)} --- đây chính
+là \textbf{hướng} của tâm.
+\end{enumerate}
+\end{nhanxet}
+
+\begin{menhde}[Chỉ độ dài của tâm là hằng số siêu tham số] \CM\label{md:rlu}
+\code{rlu\_rho\_mean(args)} (\code{attacks.py:294--303}) chỉ đọc
+\code{args.local\_epochs}, \code{args.gamma}, \code{args.lr}, \code{args.mu}
+(\emph{hệ số FedProx}, không phải vectơ $\mu$ của Nhận
+xét~\ref{nx:rluaux}) và \code{args.fl\_scheme}. Nó \emph{không} nhận
+\code{model} lẫn \code{aux\_dataset} làm đối số, nên không thể chạm tới chúng.
+Vì $\mathrm{softmax}$ có tổng 1 và mọi thành phần dương,
+\[
+  c=\bar\rho\cdot\underbrace{\mathrm{softmax}(\texttt{new\_mu})}_{\text{hướng: thuần aux}},
+  \qquad
+  \|c\|_1=\bar\rho\ \ \text{\textbf{hằng số, không đổi khi huấn luyện.}}
+\]
+Vòng hai cũng vậy: \code{estimate\_static\_RLU\_with\_posterior} trả về
+\code{np.mean(new\_shift\_softmax, axis=0)}, trung bình của các vectơ softmax,
+nên vẫn có tổng 1 và $\|c_2\|_1=\bar\rho$.
+Với $\gamma=0.1$, $m=10$: $\bar\rho=1.0988$. Và \code{b\_grad\_epochs} được
+\emph{chia cho} \code{local\_epochs} (\code{client\_base.py:229}), nên
+$\|\Gamma\|_1\le2\epstr$ và $A/n\le 2\epstr/\bar\rho$.
+\end{menhde}
+
+\begin{nhanxet}[Vì sao phải tách hai vai của tâm] \label{nx:haivai}
+Trong $A=n\beta\|\Gamma\|_1/\|c\|_1$, \textbf{hướng} của $c$ quyết định bẫy nằm
+\emph{ở đâu}, \textbf{độ dài} của $c$ quyết định bẫy \emph{chặt bao nhiêu}. Hai
+kết luận của bài dùng hai vai khác nhau, và cả hai đều cần thiết:
+\begin{itemize}
+\item \emph{Có sụp đổ} --- cần hướng $c$ thuần aux. Nếu $c$ không dính aux thì
+đầu ra bị kéo về một điểm không phụ thuộc aux, và sẽ \emph{không} có cơ chế sụp
+đổ nào để giải thích. Tức là: tính aux-phụ-thuộc của tâm chính là \emph{tiền
+đề} của lập luận, không phải lỗ hổng của nó.
+\item \emph{Sụp đổ muộn hơn ZLG\textsuperscript{+}} --- cần $\|c\|_1$ là hằng
+số siêu tham số. ZLG\textsuperscript{+} có hai cần gạt cùng bóp $A$ ($\epstr$
+giảm \emph{và} $nC(1-\epsaux)$ tăng); RLU chỉ có một ($\epstr$ giảm), vì
+$\bar\rho$ đứng yên.
+\end{itemize}
+\end{nhanxet}
+
+\begin{table}[htbp]
+\centering
+\caption{Độ dốc của chặn bẫy và phần miền khả dĩ bị loại bỏ, tại
+$\epstr=0.7$, $C=10$, $\epsaux=0.2488$, $W=1$. \CM}
+\label{tab:dodoc}
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & độ dốc $A/n$ & $A/n$ tại $\epstr=0.7$ & loại bỏ \\
+\midrule
+ZLG\textsuperscript{+} & $0.267\,\epstr$ & 0.187 & \textbf{90\,\%} \\
+RLU                    & $1.82\,\epstr$  & 1.274 & 29\,\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tỉ lệ đúng bằng $C(1-\epsaux)/\bar\rho=6.8$: \textbf{chặn bẫy chặt cho
+ZLG\textsuperscript{+} và lỏng hơn 6.8 lần cho RLU}. Đây là một \emph{tiên đoán
+thứ tự chết} kiểm được: ở cùng $\epstr$, ZLG\textsuperscript{+} phải suy giảm
+trước, RLU sau cùng.
+
+\begin{menhde}[RLU chạy dạng chuẩn hai vòng] \label{md:rlu2}
+\code{RLU\_attack} gọi \code{estimated\_entropy\_from\_grad} \emph{hai lần}; tâm
+vòng hai là đầu ra của \code{estimate\_static\_RLU\_with\_posterior}, mà hàm này
+\emph{nhận $n$ của vòng một} làm đầu vào. Ba phát biểu, ba trạng thái khác nhau:
+\begin{enumerate}
+\item \CM{} \textbf{Vòng một bị nhốt, vô điều kiện.} Tâm $c_1=\bar\rho\cdot
+\mathrm{softmax}(\texttt{new\_mu})$ thuần phụ trợ, nên Mệnh đề~\ref{md:bay} áp
+dụng trực tiếp: $\|n^{(1)}-\quant(R(c_1))\|_1\le A_1+C$.
+
+\item \CM{} \textbf{Khi $m=1$ thì vòng hai cũng thuần phụ trợ, chính xác.} Vòng
+\code{for t in range(local\_epochs - 1)} rỗng, nên hàm trả đúng
+$\mathrm{softmax}(\mu)$: không chạm $n^{(1)}$, không chạm $O$. (Và
+\code{local\_epochs=1} là mặc định trong \code{option.py}.)
+
+\item \CM{} \textbf{Vòng hai không nới được bán kính.} Hàm trả
+\code{np.mean(new\_shift\_softmax, axis=0)} --- trung bình các vectơ xác suất ---
+nên $\|c_2\|_1=\bar\rho$ \textbf{luôn luôn}, bất kể $n^{(1)}$ bằng gì. Suy ra
+$A_2=A_1$ \emph{chính xác}.
+\end{enumerate}
+\end{menhde}
+
+\begin{nhanxet}[Chỗ chưa đóng: tâm vòng hai \emph{dịch} theo tín hiệu] \label{nx:rluho}
+Phát biểu (3) nói bán kính không nở; nó \textbf{không} nói tâm nằm đâu. Vì
+$c_2=h(n^{(1)},\|O\|_2^2)$ và $n^{(1)}$ phụ thuộc gradient, tâm vòng hai
+\emph{có thể dịch theo chính tín hiệu bị tấn công}. Vậy với $m>1$, kết luận
+``đầu ra bị nhốt quanh một tâm không phụ thuộc nhãn'' \textbf{chưa được chứng
+minh cho giá trị RLU trả về} --- chỉ cho giá trị trung gian $n^{(1)}$.
+
+Khâu chỗ hở bằng chặn Lipschitz. Từ
+$\Delta_i=-\eta\|O\|_2^2\big(-n_i/B+\mathrm{softmax}(\cdot)_i\big)$ ta có
+$\partial\Delta_i/\partial n_i=\eta\|O\|_2^2/B$, cộng dồn $m-1$ bước; Jacobian
+softmax có $\|J\|_{1\to1}=\max_j 2p_j(1-p_j)\le\frac12$. Chuyển nhiễu tâm sang
+nhiễu đầu ra bằng đúng lập luận tốc độ của Mệnh đề~\ref{md:bay} --- ở đây mẫu số
+\emph{đã bị ghim} bởi (3), $\|c_2\|_1=\|c_2^0\|_1=\bar\rho$, nên $\bar\rho$
+triệt tiêu:
+\[
+  \big\|\hat N-\quant\big(R(c_2^{0}-g)\big)\big\|_1
+  \;\le\; A_1+\kappa\,(A_1+C)+C,
+  \qquad
+  \kappa=\tfrac12\,m(m-1)\,\eta\,\|O\|_2^2 .
+\]
+Chặn này chỉ dùng được khi $\kappa\ll1$, tức
+\[
+  \|O\|_2^2\;\ll\;\frac{2}{m(m-1)\eta}\;=\;2.22
+  \qquad (m=10,\ \eta=0.01).
+\]
+Với $D=512$ điều kiện này \textbf{rất có thể bị vi phạm}; cùng ngưỡng
+$\|O\|_2^2\lesssim2$ cũng là điều kiện để hồi quy
+$\mathrm{softmax}(\texttt{new\_shift}[t])$ không giãn. Nên đây \textbf{không
+phải} một số hạng bậc hai: nó có thể trội.
+
+Tệ hơn: $O_d=\mathrm{mean}_j(\Delta W_{jd}/\Delta b_j)$ \emph{chia cho}
+$\Delta b_j$, mà $\Delta b_j\to0$ ở lớp vắng mặt khi mô hình tốt lên. Nên
+$\|O\|_2^2$ có khả năng \emph{tăng} theo huấn luyện \CD{} --- $\kappa$ xấu đi
+đúng ở chế độ ta quan tâm.
+
+\textbf{Kết luận trung thực.} Với $m=1$: đóng, vô điều kiện (phát biểu 2). Với
+$m>1$: đóng cho $n^{(1)}$, và \emph{có điều kiện trên $\kappa$} cho giá trị trả
+về. Một phép đo $\|O\|_2^2$ theo độ huấn luyện đóng hoặc phá chỗ này.
+\end{nhanxet}
+
+\begin{nhanxet}[$O$ chặn được hướng, không chặn được độ nhọn] \CM
+$O$ lấy từ gradient nên \emph{có} mang nhãn, nhưng vào công thức chỉ qua
+\textbf{một vô hướng} $\sum_d O_d^2$ nhân đều lên mọi toạ độ của $\Delta$: đó là
+một nghịch nhiệt độ. Nó \emph{không nói được lớp nào} --- toàn bộ cấu trúc theo
+lớp nằm ở $n^{(1)}$. Nhận xét này giới hạn \emph{hướng} dịch của $c_2$ nhưng
+không giới hạn \emph{độ lớn}; đó là lí do vẫn cần $\kappa$ ở
+Nhận xét~\ref{nx:rluho}.
+\end{nhanxet}
+
+\subsection{LLG\textsuperscript{+}: chết ở hai dòng}
+\label{sec:llgp}
+
+LLG\textsuperscript{+} không có $R$ nên không dùng chặn bẫy được. Nó bóc tham
+lam (\code{attacks.py:262--291}) và chết ở hai chỗ khác nhau.
+
+\begin{table}[htbp]
+\centering
+\caption{Hai chỗ chết của LLG\textsuperscript{+} và dạng phản ứng. Cột cuối từ
+mô phỏng bám đúng \code{attacks.py:262--291} với \code{impact} \emph{âm} như
+trong mã nguồn; $C=10$, $B=64$, $m=10$, $n=640$. \MP}
+\label{tab:llgp}
+\small
+\footnotesize
+\begin{tabular}{@{}cllc@{}}
+\toprule
+ & \textbf{dòng} & \textbf{cơ chế} & \textbf{dạng phản ứng} \\
+\midrule
+1 & \code{:273} trừ \code{new\_offset}
+  & lệch gốc toạ độ, hiệu chuẩn theo $\epsaux$ & \emph{đơn điệu} \\
+2 & \code{:286} bóc bằng \code{new\_impact}
+  & sai đơn vị đo bước bóc & \emph{nhọn, hỏng cả hai phía} \\
+\bottomrule
+\end{tabular}
+\small
+
+\vspace{0.6em}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+\multicolumn{7}{@{}l}{\emph{Phép thử cô lập: giữ tín hiệu, chỉ đổi một đại lượng phụ trợ.} \MP} \\
+\midrule
+hệ số        & $\times0.01$ & $\times0.1$ & $\times1$ & $\times5$ & $\times20$ & $\times100$ \\
+irec (offset)& ---    & 1.000 & 0.969 & 0.859 & 0.547 & 0.359 \\
+\midrule
+hệ số        & $\times0.01$ & $\times0.1$ & $\times1$ & $\times3$ & $\times10$ & $\times60$ \\
+irec (impact)& 0.547  & 0.547 & 0.969 & 0.672 & 0.469 & 0.391 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Hai đuôi của \code{impact} hỏng theo hai cách đối nghịch: bước quá nhỏ thì một
+lớp bị chọn lại mãi (\emph{dồn cục}); bước quá lớn thì mỗi lớp bị loại ngay sau
+một lần chọn (\emph{trải đều}).
+
+\begin{nhanxet}[Gốc chung] \CM
+Cả hai đều là \textbf{một đại lượng tuyệt đối đặt vào chỗ cần một đại lượng
+tương đối}: \code{offset} và \code{impact} hiệu chuẩn theo $\epsaux$, còn thứ
+chúng phải đọ là $\|\Gamma\|_1\propto\epstr$. Hai nhịp co khác nhau nên tỉ số
+trôi, và cả hai cơ chế cùng xấu đi theo cùng một hướng --- chúng \emph{cộng
+dồn}, không bù nhau.
+
+LLG (không có dấu cộng) tránh được \emph{cả hai} bằng đúng một dòng:
+\begin{center}
+\code{new\_impact = (1 + 1/C) * (negative\_gradient / batch\_size)}
+\end{center}
+với \code{negative\_gradient}$\,\approx\|\Gamma\|_1/2$, nên bước luôn nằm ở đỉnh
+hiệu chuẩn bất kể tín hiệu to hay bé --- và LLG \emph{không trừ offset gì cả}.
+\end{nhanxet}
+
+\paragraph{Cảnh báo về phép thử.} Tín hiệu tổng hợp trong Bảng~\ref{tab:llgp}
+là \emph{sạch}: lớp vắng mặt có giá trị dương đúng bằng lượng cân bằng, không
+nhiễu. Trong tín hiệu thật, \code{offset} có vai trò chính đáng là trừ phần
+chệch đó, nên dòng ``offset $\times0$ cho irec $=1.000$'' \textbf{phóng đại tác
+hại của offset} và không phải phép thử công bằng cho vai trò thiết kế của nó.
+Phần về \code{impact} không chịu hạn chế này vì nó đo \emph{tỉ số}.
+
+\paragraph{Phép đo kết thúc tranh luận.} \CD{} Log hai số mỗi cửa sổ:
+\[
+  \rho_{\text{bước}}=\frac{B\,|\code{impact}|}{\|\Gamma\|_1/2},
+  \qquad
+  \rho_{\text{chệch}}=\frac{\|\code{offset}\|_1}{\|\Gamma\|_1}.
+\]
+Cả hai phải \emph{đứng yên} nếu LLG\textsuperscript{+} khỏe.
+
+% ===========================================================================
+\section{Lỗ duy nhất còn lại: trọng số đặc trưng $w_i$}
+\label{sec:low}
+% ===========================================================================
+
+Nhánh đọc \emph{gradient trọng số} mang theo một thừa số mà nhánh đọc
+\emph{gradient bias} không có.
+
+\begin{menhde} \CM
+$\nabla_{W_{j\cdot}}=\frac1B\sum_i r_{i,j}\,o_i^\top$, nên tổng theo chiều đặc
+trưng cho
+\[
+  \frac{G_j}{\bar O}=\frac1n\sum_i w_i\,r_{i,j},
+  \qquad w_i=\frac{s_i}{\bar O},\quad s_i=\one^\top o_i .
+\]
+Trái lại $\nabla_b=\frac1B\sum_i r_i$ \textbf{không chứa $s_i$}, nên
+$\|\Gamma\|_1\le2\epstr$ là vô điều kiện.
+\end{menhde}
+
+\begin{table}[htbp]
+\centering
+\caption{Ai mang $w_i$. Đối chiếu bốn dòng trong \code{client\_base.py}. \CM}
+\label{tab:mangw}
+\small
+\begin{tabular}{@{}llcc@{}}
+\toprule
+ & \textbf{tín hiệu đọc từ} & mang $w_i$ & cần giả thiết $s_i\approx\bar O$ \\
+\midrule
+ZLG\textsuperscript{+}        & \code{sum(w\_grad, dim=-1)} & có & có \\
+LLG / LLG\textsuperscript{+}  & \code{sum(w\_grad, dim=-1)} (:327, :446) & có & có \\
+RLU                           & \code{b\_grad\_epochs} (:240) & không & không \\
+VLI\textsuperscript{$*$}      & \code{b\_grad\_epochs} (:503) & \textbf{không} & \textbf{không} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{menhde}[$w_i\ge0$] \CM
+\code{\_forward\_impl} trả \code{x} sau \code{F.relu(bn\_final(x))} rồi
+\code{pool} rồi \code{flatten} (\code{models.py:174--179}; nhánh kia
+\code{BasicBlock} cũng kết bằng \code{self.relu}). Embedding hậu-ReLU nên
+$o_{i,d}\ge0$, do đó $s_i\ge0$ và $w_i\ge0$: không cần trị tuyệt đối, và $W$ là
+một \emph{trung bình có trọng số} thật, nằm giữa $\min_i w_i$ và $\max_i w_i$ ---
+không phải $w_{\max}$.
+\end{menhde}
+
+\begin{menhde}[Lưỡng nan] \CM\label{md:luongnan}
+Tách thay vì chặn thô:
+\[
+  \frac{G_j}{\bar O}
+  =\underbrace{\frac1n\sum_i r_{i,j}}_{\text{điều ZLG giả định}}
+  +\underbrace{\frac1n\sum_i (w_i-1)r_{i,j}}_{\text{phần dư}}
+  \;\Longrightarrow\;
+  \Big\|\tfrac{G}{\bar O}\Big\|_1\le 2\epstr(1+V),
+  \quad V=\frac{\sum_i|w_i-1|\varepsilon_i}{\sum_i\varepsilon_i}.
+\]
+Số hạng thứ nhất \emph{không chứa $w$ gì cả}. Toàn bộ rủi ro dồn vào $V$ ---
+\textbf{độ lệch trung bình của $w$ khỏi 1}. Nhưng $V$ nhỏ \emph{chính là giả
+thiết mô hình hóa của riêng ZLG\textsuperscript{+}}: cả đẳng thức nền
+$\hat N_j=n(\bar p_j-G_j/\bar O)$ chỉ đúng khi $s_i\approx\bar O$. Vậy:
+\begin{itemize}
+\item $V$ nhỏ $\Rightarrow$ chặn bẫy chặt $\Rightarrow$ ZLG\textsuperscript{+} sụp đổ;
+\item $V$ lớn $\Rightarrow$ phần dư $\sum_i(w_i-1)r_{i,j}$ \emph{không bám nhãn},
+nó chỉ thêm nhiễu vào một tín hiệu vốn đang co.
+\end{itemize}
+Nhánh thứ hai là \emph{lập luận}, không phải chứng minh --- giả thiết sai chưa
+tự động là ước lượng hỏng.
+\end{menhde}
+
+\begin{table}[htbp]
+\centering
+\caption{Cái giá nếu $W$ nổ, tại $\epstr=0.7$, $C=10$, $\epsaux=0.2488$. \CM}
+\label{tab:Wgia}
+\small
+\begin{tabular}{@{}cccc@{}}
+\toprule
+$W$ & 1 & 5 & \textbf{9.6} \\
+\midrule
+$A/n$ & 0.187 & 0.935 & 1.80 \\
+loại bỏ & 90\,\% & 48\,\% & \textbf{0\,\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+$W$ phải tới $\approx10$ chặn mới rỗng; để \emph{thoát hẳn} sụp đổ, $W$ phải
+\emph{tăng} cỡ $1/\epstr$, tức $\approx18\times$ khi $\epstr$ đi từ $0.9$ xuống
+$0.05$. Vì $W$ bất biến theo thang độ ($s_i$ và $\bar O$ cùng nở), cơ chế nổ dễ
+xảy ra nhất tự triệt tiêu; cái còn lại chỉ là \emph{khe hở} $\bar s_{tr}/\bar O$
+giữa train và test. \CD{}
+
+\paragraph{Cùng một số, hai vai trò ngược nhau.} Tỉ số hiệu chuẩn của
+LLG\textsuperscript{+} là $\rho\propto(\bar s_{aux}/\bar s_{tr})(\epsaux/\epstr)$:
+hai thừa số đi \emph{ngược chiều} khi quá khớp, nên khe hở đặc trưng
+\emph{bảo vệ} LLG\textsuperscript{+} trong khi nó \emph{làm hại}
+ZLG\textsuperscript{+}. Một phép đo đóng cả hai. \CD{}
+
+% ===========================================================================
+\section{VLI\textsuperscript{$*$}: vì sao không sụp đổ cùng cách}
+% ===========================================================================
+
+\begin{menhde}[Dạng đóng là chính xác, và $\bar\varepsilon$ triệt tiêu] \CM\label{md:vlistar}
+Giả thiết: nhầm lẫn đều $Q_{jk}=\frac{1}{C-1}$ với $k\ne j$; độ khó đối xứng
+$\varepsilon_j=\varepsilon$; có ít nhất một lớp vắng mặt. Khi đó với
+$a_j=N_j\varepsilon$ và $G=-(I-Q^\top)a$,
+\[
+  G_j=\frac{\varepsilon}{B(C-1)}\big(n-C N_j\big),
+  \qquad
+  G_{\max}=\frac{\varepsilon\,n}{B(C-1)}\ \ (\text{tại } N_j=0),
+\]
+nên
+\[
+  1-\frac{G_j}{G_{\max}}=\frac{C N_j}{n}
+  \qquad\Longrightarrow\qquad
+  \boxed{\;\frac{n}{C}\Big(1-\frac{G_j}{G_{\max}}\Big)=N_j\ \ \text{chính xác.}\;}
+\]
+\end{menhde}
+
+Đây là nguyên văn \code{attacks.py:121--122}. Hai hệ quả:
+
+\begin{hequa}[Bất biến thang độ] \CM
+$\varepsilon$ \textbf{triệt tiêu sạch}. VLI\textsuperscript{$*$} không có tâm
+phụ trợ, không có hằng số hiệu chuẩn nào, nên \emph{không} chết theo cơ chế của
+Mục~4. Nó chỉ phụ thuộc độ huấn luyện qua \textbf{hình dạng} của $Q$, không qua
+\textbf{độ lớn} của $\bar\varepsilon$.
+\end{hequa}
+
+\begin{hequa}[Không cần giả thiết đặc trưng] \CM
+VLI\textsuperscript{$*$} đọc $\Delta b$ (Bảng~\ref{tab:mangw}) nên không mang
+$w_i$: nó miễn nhiễm với lỗ ở Mục~\ref{sec:low}, khác ZLG\textsuperscript{+} và
+LLG\textsuperscript{+}.
+\end{hequa}
+
+% ===========================================================================
+\section{VLI\textsuperscript{$*$} ở $C$ lớn: luật co rút và bản sửa}
+\label{sec:corut}
+% ===========================================================================
+
+Ở $C=100$ VLI\textsuperscript{$*$} \emph{có} suy giảm --- nhưng vì một lí do
+hoàn toàn khác, và sửa được.
+
+\subsection{Luật co rút}
+
+\begin{menhde}[Co rút về mức đều] \CM\label{md:luat}
+Giả sử $G_{\max}$ dùng trong công thức bị phồng lên hệ số $1+b$. Vì
+$\sum_j G_j=0$ (Bổ đề~\ref{bd:tongkhong}), tổng tự động bằng $n$ --- không cắt,
+không chuẩn hóa lại --- và
+\[
+  \hat N_j=\frac nC+\lambda\Big(N_j-\frac nC\Big),
+  \qquad \lambda=\frac{1}{1+b},
+\]
+tức \textbf{co rút thuần túy về mức đều}. Do đó
+\[
+  \boxed{\;\mathrm{irec}=1-\frac{b}{1+b}\,S,
+  \qquad S=\frac1n\sum_j\Big(N_j-\frac nC\Big)_{\!+}\;}
+\]
+\end{menhde}
+
+\begin{proof}
+Với $N_j\ge n/C$ thì $\hat N_j\le N_j$ nên $\min=\hat N_j$; với $N_j<n/C$ thì
+$\hat N_j>N_j$ nên $\min=N_j$. Cộng lại:
+$\frac1n\sum_j\min=\big(1-S\big)+\lambda S$.
+\end{proof}
+
+\begin{nhanxet}[Không có chuẩn hóa lại] \CM\label{nx:khongchuanhoa}
+$\sum_j\hat N_j=n-\frac{n}{C(1+b)}\frac{\sum_j G_j}{G_{\max}}=n$ vì
+$\sum_j G_j=0$. Nên \code{\_project\_to\_simplex} không can thiệp và
+Mệnh đề~\ref{md:luat} là \emph{chính xác}, không phải xấp xỉ.
+\end{nhanxet}
+
+\paragraph{Vì sao $b$ lớn ở $C$ lớn.} \code{VLI\_star\_closed\_form} chia cho
+\code{np.max(G)}, giả định \emph{mọi} lớp vắng mặt có cùng một giá trị $G$
+(nhầm lẫn đều). Số lớp vắng mặt mà \code{np.max} quét qua:
+$1.6$ (CIFAR10 $\alpha{=}0.5$) $\to$ $14.1$ (CIFAR100 $\alpha{=}0.5$) $\to$
+$52.8$ (CIFAR100 $\alpha{=}0.1$). \DO{} Max trên nhiều mẫu thì chệch lên nhiều
+hơn; mà nhầm lẫn CIFAR100 có cấu trúc \emph{phân cấp} (20 siêu lớp $\times$ 5)
+nên phổ $G_j$ của lớp vắng mặt giãn rất rộng.
+
+\subsection{Kiểm chứng luật co rút}
+
+\begin{table}[htbp]
+\centering
+\caption{Tiên đoán so với đo trực tiếp. $b$ tiên đoán là \emph{khớp ngược} từ
+irec qua Mệnh đề~\ref{md:luat}; $b$ đo được dùng nhãn oracle
+$b=\max_{j:N_j=0}G_j/\mathrm{mean}_{j:N_j=0}G_j-1$. CIFAR100, resnet18
+(acc 77.22), $\alpha=0.1$, $B=256$, $m=10$, $n=2560$, 16+16 cửa sổ. \DO}
+\label{tab:kiem}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & tiên đoán & \textbf{đo được} \\
+\midrule
+$b$ (độ phồng $G_{\max}$)      & 1.71  & \textbf{1.80} \\
+$\lambda=1/(1+b)$              & 0.363 & \textbf{0.357} \\
+trần ORACLE                    & $\approx0.87$ & \textbf{0.843} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ba con số độc lập, sai số dưới 3\,\%. Luật co rút đúng.
+
+\begin{table}[htbp]
+\centering
+\caption{Tách nguyên nhân cú rơi $\alpha{=}0.5\to\alpha{=}0.1$. $S$ tính từ phân
+hoạch in ra, quy về cỡ cửa sổ --- \emph{không} phải $S$ đo trên từng cửa sổ
+thật, nên bảng này là \emph{xấp xỉ} (số lớp vắng mặt đo được ở $\alpha{=}0.5$
+là 14.1, cao hơn mức 10.2 mà cách quy đổi này cho, nên $S$ thật lớn hơn 0.460).
+\DO/\CD}
+\label{tab:tach}
+\small
+\begin{tabular}{@{}llc@{}}
+\toprule
+ & & irec \\
+\midrule
+CIFAR100 $\alpha=0.5$ & & 0.797 \\
+\quad \textbf{(1) bài toán khó lên} & $S:0.460\to0.713$, giữ $\lambda$ & $-0.111$ \ \ (43\,\%) \\
+\quad \textbf{(2) tín hiệu xấu đi} & $\lambda:0.559\to0.356$ & $-0.145$ \ \ (57\,\%) \\
+CIFAR100 $\alpha=0.1$ & & \textbf{0.541} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Bản sửa: đổi mẫu số}
+
+Toàn bộ tổn thất nằm ở \emph{một số}: $G_{\max}$. Ba quy tắc thay thế, tất cả
+đều \textbf{không dùng nhãn} và \textbf{không có tham số}:
+\[
+  \texttt{max}: G^*=\max_j G_j
+  \qquad
+  \texttt{mean+}: G^*=\mathrm{mean}\{G_j>0\}
+  \qquad
+  \texttt{med+}: G^*=\mathrm{median}\{G_j>0\}
+\]
+và một mốc \emph{dùng nhãn} làm trần: $\texttt{ORACLE}: G^*=\mathrm{mean}_{j:N_j=0}G_j$.
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Bảng kết quả chính.} irec của VLI\textsuperscript{$*$} theo quy
+tắc chọn mẫu số. resnet18; CIFAR100 acc 77.22 ($B{=}256$, $m{=}10$, $n{=}2560$),
+CIFAR10 acc 87.36 ($B{=}64$, $m{=}10$, $n{=}640$); 10 client, gộp hai lần chạy.
+Khối chẩn đoán tính mọi quy tắc trên \emph{cùng một cửa sổ}. \DO}
+\label{tab:chinh}
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+ & \#cửa sổ & lớp vắng & $b$ & \texttt{max} & \texttt{mean+} & \texttt{med+} & ORACLE \\
+\midrule
+CIFAR100 $\alpha=0.1$ & 32 & 52.8 & 1.80 & 0.541 & \textbf{0.843} & 0.836 & 0.843 \\
+CIFAR100 $\alpha=0.5$ & 22 & 14.1 & 0.48 & 0.797 & \textbf{0.829} & 0.828 & 0.857 \\
+CIFAR10\ \ \ $\alpha=0.5$ & 144 & \ \ 1.6 & 0.19 & \textbf{0.878} & 0.794 & 0.816 & 0.868 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Lợi ích của \code{mean+} so với \code{max}, phân theo $b$; gộp 54 cửa
+sổ có $\ge2$ lớp vắng mặt (nên tính được $b$). Đơn điệu, tương quan
+$r=+0.85$, điểm giao ở $b\approx0.3$. \DO}
+\label{tab:crossover}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$b$ & $<0.3$ & $0.3$--$0.5$ & $0.5$--$0.8$ & $0.8$--$1.5$ & $>1.5$ \\
+\midrule
+\#cửa sổ & 3 & 10 & 9 & 13 & 19 \\
+\texttt{mean+} $-$ \texttt{max} & $-0.019$ & $+0.034$ & $+0.048$ & $+0.265$ & $+0.327$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Điều kiện áp dụng --- và vì sao không có quy tắc phổ quát}
+
+\begin{nhanxet}[CIFAR10 không mắc bệnh] \DO\label{nx:cifar10}
+Trên CIFAR10, \textbf{ngay cả ORACLE cũng thua \code{max}} (0.868 so với 0.878).
+Một quy tắc dùng nhãn thật mà còn thua thì nghĩa là ở đó $G_{\max}$ \emph{không
+hề bị phồng} ($b=0.19$): không có bệnh, nên mọi cách hạ mẫu số đều là phá. Điều
+này tự nhất quán với Mệnh đề~\ref{md:luat}: cơ chế co rút tồn tại \emph{khi và
+chỉ khi} $b$ lớn.
+\end{nhanxet}
+
+\begin{nhanxet}[Đã thử tìm quy tắc tự động và thất bại] \MP
+Một thuật toán tự-nhất-quán --- chọn $G^*$ thoả
+$\mathrm{mean}\{G^+\}=G^*\big(1-\tfrac Cn\mathrm{mean}\{\hat N^+\}\big)$, hoàn
+toàn không cần nhãn, và có $G^*$ thật là điểm bất động --- \textbf{hỏng}: nó hội
+tụ ngược về \code{max}, và có cấu hình bật lên $139\times$. Không nên thử lại
+hướng này.
+\end{nhanxet}
+
+\paragraph{Quy tắc dùng được.} Biến quyết định là $b$, mà $b$ cần nhãn. Tuy
+nhiên $C$ là \emph{công khai}, và quy tắc theo $C$ đúng trên toàn bộ dữ liệu
+hiện có:
+\begin{center}
+$C=100\ \Rightarrow\ \code{--vli\_star\_gmax mean+}$
+\qquad\qquad
+$C=10\ \Rightarrow$ giữ \code{max}
+\end{center}
+Đây là một \emph{điều kiện áp dụng} chọn từ hai bộ dữ liệu, không phải một định
+lý. Phải ghi đúng như vậy.
+
+\begin{table}[htbp]
+\centering
+\caption{Đánh đổi trên cAcc của \code{mean+}. \code{mean+} ép những lớp có $G_j$
+trên mẫu số về 0: nhiều lớp vắng mặt thì đoán đúng (cAcc tăng), ít lớp vắng mặt
+thì ép oan lớp có mặt (cAcc giảm). \DO}
+\label{tab:cacc}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & cAcc với \code{max} & cAcc với \code{mean+} \\
+\midrule
+CIFAR100 $\alpha=0.1$ & 0.46 & \textbf{0.72} $\uparrow$ \\
+CIFAR100 $\alpha=0.5$ & 0.86 & \textbf{0.72} $\downarrow$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{Cách báo cáo: dùng $\lambda$, không dùng irec thô}
+\label{sec:baocao}
+% ===========================================================================
+
+\begin{dinhnghia}[Tỉ lệ thông tin trích được] \CM
+\[
+  \lambda=\frac{\mathrm{irec}-\mathrm{irec}_{\text{đều}}}{1-\mathrm{irec}_{\text{đều}}},
+  \qquad \mathrm{irec}_{\text{đều}}=1-S .
+\]
+\end{dinhnghia}
+
+Theo Mệnh đề~\ref{md:luat}, $\lambda$ chính là hệ số co rút. irec thô
+\emph{trộn} hai thứ: ``bài toán khó hơn'' (qua $S$) và ``phương pháp kém hơn''
+(qua $\lambda$). Ví dụ $0.797\to0.541$ thực ra là $\lambda:0.559\to0.356$ ---
+nhỏ hơn nhiều so với vẻ ngoài.
+
+\paragraph{Bỏ cAcc cho VLI\textsuperscript{$*$} ở $C$ lớn.} \DO{} Với
+\code{max}, cAcc gần \emph{bằng đúng} tỉ lệ lớp có mặt (0.46 so với 0.52;
+0.86 so với 0.90), vì co rút làm mọi lớp nhận $\frac nC(1-\lambda)>0$ nên
+VLI\textsuperscript{$*$} đoán hầu như mọi lớp đều có mặt. cAcc ở đó không mang
+thông tin.
+
+% ===========================================================================
+\section{Bảng trạng thái}
+% ===========================================================================
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Bảng tổng kết.} Trạng thái chứng minh của từng phương pháp.}
+\label{tab:trangthai}
+\small
+\begin{tabular}{@{}p{2.2cm}p{6.4cm}p{6.2cm}@{}}
+\toprule
+ & \textbf{cơ chế chết} & \textbf{trạng thái} \\
+\midrule
+ZLG\textsuperscript{+}
+  & tâm aux $n(1-\epsaux)$ nở ra trong khi tín hiệu co; hai cần gạt cùng bóp $A$
+  & \textbf{đóng}, điều kiện trên $V$ (Mệnh đề~\ref{md:luongnan}): $V$ nổ thì
+    hỏng vì giả thiết của chính nó \\
+RLU
+  & cùng cơ chế, nhưng $\|c\|_1=\bar\rho$ là hằng số siêu tham số nên chỉ có
+    \emph{một} cần gạt; chặn lỏng hơn $6.8\times$
+  & $m{=}1$: \textbf{đóng, vô điều kiện}. $m{>}1$: đóng cho giá trị trung gian
+    $n^{(1)}$, nhưng giá trị \emph{trả về} còn \textbf{điều kiện trên} $\kappa$
+    (Nhận xét~\ref{nx:rluho}) --- tâm vòng hai dịch theo tín hiệu \\
+LLG\textsuperscript{+}
+  & \code{impact} sai đơn vị đo (\code{:286}) + \code{offset} lệch gốc
+    (\code{:273}); cả hai hiệu chuẩn theo $\epsaux$
+  & \textbf{cơ chế đóng}; phát biểu định lượng còn phụ thuộc $V$ \\
+VLI\textsuperscript{$*$}
+  & \emph{không} chết kiểu aux ($\varepsilon$ triệt tiêu). Chết vì co rút về mức
+    đều khi $b$ lớn, tức khi nhiều lớp vắng mặt + nhầm lẫn có cấu trúc
+  & \textbf{đo và sửa được}: $0.541\to0.843$ ở CIFAR100 $\alpha{=}0.1$, chạm
+    trần oracle, không dùng nhãn \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Những gì \textbf{chưa đo}. \CD}
+\label{tab:chuado}
+\small
+\begin{tabular}{@{}p{3.4cm}p{11.4cm}@{}}
+\toprule
+\textbf{đại lượng} & \textbf{vì sao cần} \\
+\midrule
+$V$ (và $\bar s_{tr}/\bar O$)
+  & Đại lượng \emph{duy nhất} còn hở của ZLG\textsuperscript{+} \emph{và}
+    LLG\textsuperscript{+}; một phép đo đóng cả hai. Ba dòng trong vòng ZLG của
+    \code{client\_base.py} (giữ \code{emb} thay vì vứt vào \code{\_}). \\
+$\rho_{\text{bước}},\rho_{\text{chệch}}$
+  & Xác nhận hai chỗ chết của LLG\textsuperscript{+} trên tín hiệu thật, thay
+    cho mô phỏng ở Bảng~\ref{tab:llgp}. \\
+$\|O\|_2^2$ theo độ huấn luyện
+  & \textbf{Đóng hoặc phá} chỗ hở duy nhất của RLU khi $m>1$
+    (Nhận xét~\ref{nx:rluho}): chặn chỉ dùng được khi
+    $\kappa=\frac12 m(m{-}1)\eta\|O\|_2^2\ll1$, tức $\|O\|_2^2\ll2.22$ ở
+    $m{=}10$, $\eta{=}0.01$ --- với $D{=}512$ rất có thể bị vi phạm. Dự đoán:
+    \emph{tăng} theo huấn luyện, vì $O_d$ chia cho $\Delta b_j\to0$. \\
+irec theo $\epstr$
+  & \textbf{Trục chính của bài.} Hiện mỗi dataset chỉ có \emph{một} checkpoint.
+    Cần nhiều mức accuracy để vẽ được đường suy giảm, và để kiểm tiên đoán thứ
+    tự ZLG\textsuperscript{+} $\to$ LLG\textsuperscript{+} $\to$ RLU. \\
+$C$ trung gian
+  & Quy tắc theo $C$ (Mục~\ref{sec:corut}) hiện chỉ dựa trên $C\in\{10,100\}$.
+    CIFAR-20 siêu lớp hoặc Tiny ($C{=}200$) sẽ kiểm được nó. \\
+Kiến trúc / sơ đồ FL khác
+  & Mọi số VLI\textsuperscript{$*$} hiện là resnet18 + FedAvg + $m{=}10$. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Tiên đoán khả phủ chứng.} Mức suy giảm của các baseline phải tỉ lệ
+với \emph{khoảng cách tổng quát hóa}, không phải với \emph{train accuracy}. Nên
+MNIST+LeNet5 suy giảm ít $<$ CIFAR10+ResNet18 $<$ CIFAR100+ResNet18. Nếu MNIST
+cũng sụp như CIFAR100 thì cơ chế trong báo cáo này \textbf{sai}.
+
+% ===========================================================================
+\appendix
+\section{Bản đồ mã nguồn}
+% ===========================================================================
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{5.6cm}p{9.2cm}@{}}
+\toprule
+\textbf{vị trí} & \textbf{nội dung} \\
+\midrule
+\code{main.py:109} & \code{aux\_dataset = LocalDataset(test\_dataset, aux\_dict)} --- phụ trợ lấy từ tập \textbf{kiểm tra} \\
+\code{client\_utils.py:120} & \code{estimated\_entropy\_from\_grad} --- dạng chuẩn $\quant(R(c-\Gamma))$ nguyên văn \\
+\code{client\_utils.py:16} & \code{estimate\_static\_RLU\_with\_posterior} --- tinh chỉnh hậu nghiệm, trả \code{np.mean(softmax)} \\
+\code{attacks.py:294--303} & \code{rlu\_rho\_mean} --- chỉ đọc hyperparameter, cho $\bar\rho=1.0988$ \\
+\code{attacks.py:306--319} & \code{RLU\_attack} --- gọi dạng chuẩn \emph{hai lần} \\
+\code{attacks.py:215--228} & \code{ZLGp\_attack} --- $\hat N_j=n(\bar p_j-G_j/\bar O)$ rồi \code{prop} \\
+\code{attacks.py:262--291} & \code{LLGp\_attack} --- \code{:273} trừ offset, \code{:286} bóc bằng \code{new\_impact} \\
+\code{client\_utils.py:191} & \code{estimate\_static\_LLG} --- \code{impact} \textbf{âm} (dựng từ gradient lớp đúng) \\
+\code{attacks.py:87--131} & \code{VLI\_star\_closed\_form} --- $\frac nC(1-G/G^*)$; nhận \code{gmax=}/\code{gmax\_quantile=} \\
+\code{attacks.py:134--213} & \code{VLI\_star\_generalized} --- $r$, $Q$ là đầu vào oracle, không ước lượng từ cập nhật \\
+\code{client\_base.py:229} & \code{b\_grad\_epochs /= local\_epochs} --- RLU dùng \emph{trung bình} \\
+\code{client\_base.py:327, 446} & LLG / ZLG\textsuperscript{+} đọc \code{sum(w\_grad, dim=-1)} --- mang $w_i$ \\
+\code{client\_base.py:495, 503} & VLI\textsuperscript{$*$} đọc \code{b\_grad\_epochs} --- \emph{không} mang $w_i$ \\
+\code{models.py:174--179} & embedding hậu-ReLU $\Rightarrow w_i\ge0$ \\
+\code{DataSampling.py:531--547} & Dirichlet \textbf{trên các client cho từng lớp}, kèm chặn cân bằng \\
+\code{option.py} & \code{--vli\_star\_gmax \{max,mean+,med+\}}, \code{--vli\_star\_diag} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Tái lập.} Khối \code{--vli\_star\_diag} in irec của \emph{mọi} quy
+tắc trên \emph{cùng một cửa sổ}, nên một lượt chạy cho đủ mọi so sánh trong
+Bảng~\ref{tab:chinh} và~\ref{tab:crossover}:
+\begin{center}
+\code{python main.py --scheme VLI\_star --fl\_scheme fedavg --dataset CIFAR100} \\
+\code{\ \ --model resnet18 --hidden 512 --n\_classes 100 --batch\_size 256 --local\_epochs 10} \\
+\code{\ \ --alpha 0.1 --check\_point\_path resnet18\_CIFAR100\_acc\_77.22\_125.pth --vli\_star\_diag}
+\end{center}
+Đường chạy mặc định (\code{--vli\_star\_gmax max}) không đổi so với bản gốc.
+
+\end{document}

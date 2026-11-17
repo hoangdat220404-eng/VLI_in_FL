@@ -316,4 +316,30 @@ def RLU_attack(model,w_grad_epochs, b_grad_epochs , latent_dim, mu, aux_dataset,
                                     args.batch_size * args.local_epochs)
     new_shift_softmax = estimate_static_RLU_with_posterior(args, n, mu, new_mu, O)
     n = estimated_entropy_from_grad(args, new_shift_softmax*rho_mean,b_grad_epochs.detach().cpu().tolist(), args.batch_size*args.local_epochs)
+    if getattr(args, 'rlu_diag', False):
+        rlu_diag_print(args, O, b_grad_epochs, new_mu, new_shift_softmax, rho_mean)
     return n
+
+
+def rlu_diag_print(args, O, b_grad_epochs, new_mu, c2_dir, rho_mean):
+    """Phan biet hai co che lam RLU song/chet. Chi dung tin hieu + aux, KHONG dung nhan that.
+
+    A_tren_n  = ||Gamma||_1 / rho_bar  -- ban kinh bay do truc tiep.
+                Lon  => bay long  => RLU song vi tin hieu con manh (gia thuyet 'eps_tr khac nhau').
+    kappa     = (1/2) m (m-1) eta ||O||^2  -- do manh cua dich tam vong hai.
+                >~1  => tam vong hai dich theo n^(1) => RLU thoat bay (gia thuyet 'kappa').
+    drift     = ||c2_dir - softmax(new_mu)||_1  -- do dich THUC TE da xay ra, trong [0, 2].
+                ~0   => tam dung yen o diem thuan aux => sup do.
+    """
+    Onp = O.detach().cpu().numpy()
+    n_bad = int((~np.isfinite(Onp)).sum())
+    O2 = float(np.sum(np.square(Onp[np.isfinite(Onp)])))
+    m, eta = args.local_epochs, args.lr
+    kappa = 0.5 * m * (m - 1) * eta * O2
+    nguong = 2.0 / (m * (m - 1) * eta) if m > 1 else float('inf')
+    G1 = float(np.abs(b_grad_epochs.detach().cpu().numpy()).sum())
+    c1_dir = scipy.special.softmax(new_mu)
+    drift = float(np.abs(np.asarray(c2_dir) - c1_dir).sum())
+    print('  [RLU diag] O2=%.4g (D=%d, bad=%d) kappa=%.4g [nguong O2=%.3g] '
+          'A/n=%.4g (Gamma1=%.4g, rho=%.4f) drift=%.4g/2'
+          % (O2, Onp.size, n_bad, kappa, nguong, G1 / rho_mean, G1, rho_mean, drift))

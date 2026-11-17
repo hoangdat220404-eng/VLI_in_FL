@@ -71,6 +71,10 @@ def args_parser():
                         help='RLU posterior search: compare against the full new_mu vector instead of the official '
                              'new_mu[last_epoch] scalar (a bug in the official code). Off by default = official behaviour.')
 
+    parser.add_argument('--rlu_diag', action='store_true',
+                        help='RLU: in ||O||^2, kappa, A/n va do dich cua tam vong hai so voi softmax(new_mu). '
+                             'Chi doc tin hieu + aux, khong dung nhan that.')
+
     args = parser.parse_args()
     return args
 
