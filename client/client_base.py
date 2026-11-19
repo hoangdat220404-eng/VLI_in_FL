@@ -11,6 +11,7 @@ from client.client_utils import estimate_static_RLU, estimated_entropy_from_grad
 from client.client_utils import estimate_static_LLG,estimate_static_ZLG
 from client.client_utils import create_synthetic_basis_matrix, calculate_distribution_ratios, estimate_static_VLI, estimate_static_VLI_RLU, calculate_dynamic_boost
 from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form, rlu_diag_print
+from client.experiments import collapse_reference, print_collapse
 
 import torch.nn.functional as F
 
@@ -841,6 +842,29 @@ class Client(object):
                         _ghi(_tag, VLI_star_closed_form(_Gs, args=self.args, gmax=_gv))
                     except Exception as _e:
                         _bo(_tag, _e)
+
+                if getattr(self.args, 'collapse_diag', False):
+                    _n_w = self.args.batch_size * self.args.local_epochs
+                    _G1 = torch.sum(w_grad_epochs, dim=-1)
+                    _outs = {}
+                    try:
+                        _outs['RLU'] = RLU_attack(model=copy.deepcopy(self.model), w_grad_epochs=w_grad_epochs,
+                                                  b_grad_epochs=b_grad_epochs, latent_dim=self.latent_dim,
+                                                  mu=self.mu, aux_dataset=self.aux_dataset, args=self.args)
+                        _outs['ZLGp'] = ZLGp_attack(model=copy.deepcopy(self.model),
+                                                    gradients_for_prediction=_G1.clone(), O_bar=O_bar, pj=pj,
+                                                    aux_dataset=self.aux_dataset, args=self.args)
+                        _outs['LLGp'] = LLGp_attack(model=copy.deepcopy(self.model),
+                                                    gradients_for_prediction=_G1.clone(), impact=impact,
+                                                    offset=offset, aux_dataset=self.aux_dataset, args=self.args)
+                        _outs['LLG'] = LLG_attack(model=copy.deepcopy(self.model),
+                                                  gradients_for_prediction=_G1.clone(), args=self.args)
+                    except Exception as _e:
+                        print('  [collapse] khong dung lai duoc dau ra that: %s' % _e)
+                    print_collapse(collapse_reference(
+                        self.args, copy.deepcopy(self.model), self.aux_dataset,
+                        self.args.n_classes, _n_w, num_instances,
+                        outputs=_outs, O_bar=O_bar, pj=pj, impact=impact, offset=offset))
 
                 for m in methods:
                     if m not in result_irec:

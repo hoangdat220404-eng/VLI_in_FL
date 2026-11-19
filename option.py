@@ -75,6 +75,18 @@ def args_parser():
                         help='RLU: in ||O||^2, kappa, A/n va do dich cua tam vong hai so voi softmax(new_mu). '
                              'Chi doc tin hieu + aux, khong dung nhan that.')
 
+    # ---- co cho cac thuc nghiem kiem chung chan bay (them moi, khong doi mac dinh) ----
+    parser.add_argument('--load_ckpt', action='store_true',
+                        help='Nap --check_point_path vao global model va BO QUA vong tien huan luyen. '
+                             'Khong bat thi giu nguyen hanh vi cu (huan luyen tu dau --pretrain_rounds vong).')
+    parser.add_argument('--pretrain_rounds', type=int, default=None,
+                        help='So vong FedAvg tien huan luyen khi KHONG dung --load_ckpt. Mac dinh None = giu nguyen gia tri trong main.py.')
+    parser.add_argument('--oracle_stats', action='store_true',
+                        help='ORACLE (dung du lieu that cua client thay cho aux trong estimate_static_*). '
+                             'Khong phai tan cong kha thi - chi de tach "uoc luong toi" khoi "hong cau truc".')
+    parser.add_argument('--collapse_diag', action='store_true',
+                        help='Do khoang cach tu dau ra toi diem tham chieu khi tin hieu = 0, va irec cua chinh diem do.')
+
     args = parser.parse_args()
     return args
 

@@ -164,9 +164,37 @@ for idx in range(args.n_clients):
 
         Clients.append(Client_dyn(args, Loaders_train[idx], idx, device, args.model, aux_dataset, alpha_coef_adpt))
 
+# ===== THEM MOI: nap checkpoint / oracle stats (khong sua dong nao cu) =====
+if getattr(args, 'oracle_stats', False):
+    # Thay aux bang chinh du lieu cua client. Moi estimate_static_* deu doc
+    # self.aux_dataset nen chi can gan mot lan la phu het moi phuong phap.
+    for _c in Clients:
+        _c.aux_dataset = _c.trainloader.dataset
+    print('==> ORACLE STATS: dung du lieu that cua client thay cho aux '
+          '(KHONG phai tan cong kha thi - chi de phan tich)')
+
+if getattr(args, 'load_ckpt', False):
+    if not args.check_point_path:
+        raise SystemExit('--load_ckpt can --check_point_path')
+    _ck = torch.load(args.check_point_path, map_location=torch.device('cpu'), weights_only=False)
+    global_model.load_state_dict(_ck)
+    global_weights = global_model.state_dict()
+    for _c in Clients:
+        _c.load_model(global_weights)
+    _a1, _a5 = global_acc(global_model, total_loader_train)
+    print('==> loaded global model checkpoint: %s' % args.check_point_path)
+    print('==> training accuracy cua mo hinh bi tan cong: top1=%.2f top5=%.2f' % (_a1, _a5))
+# ===========================================================================
+
 # Attacking after training the global model
 args.epochs = 5 # Giả sử bạn set lại epoch > 0 để chạy
 best_acc = 80.0
+
+if getattr(args, 'load_ckpt', False):
+    args.epochs = 0                      # da nap checkpoint -> bo qua tien huan luyen
+elif getattr(args, 'pretrain_rounds', None) is not None:
+    args.epochs = args.pretrain_rounds
+print('==> so vong tien huan luyen: %d' % args.epochs)
 
 for epoch in range(args.epochs):
     local_weights = []
