@@ -82,6 +82,9 @@ def args_parser():
                              'Khong bat thi giu nguyen hanh vi cu (huan luyen tu dau --pretrain_rounds vong).')
     parser.add_argument('--pretrain_rounds', type=int, default=None,
                         help='So vong FedAvg tien huan luyen khi KHONG dung --load_ckpt. Mac dinh None = giu nguyen gia tri trong main.py.')
+    parser.add_argument('--target_acc', type=float, default=None,
+                        help='Dung tien huan luyen ngay khi training accuracy top-1 (%%) vuot nguong nay; '
+                             '--pretrain_rounds khi do la so vong toi da.')
     parser.add_argument('--oracle_stats', action='store_true',
                         help='ORACLE (dung du lieu that cua client thay cho aux trong estimate_static_*). '
                              'Khong phai tan cong kha thi - chi de tach "uoc luong toi" khoi "hong cau truc".')

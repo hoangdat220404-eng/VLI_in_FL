@@ -222,6 +222,10 @@ for epoch in range(args.epochs):
     torch.save(global_model.state_dict(), checkpoint_path)
     print(f'---> Saved checkpoint: {checkpoint_path}')
 
+    if args.target_acc is not None and float(acc_top1) > args.target_acc:
+        print(f'==> dat target_acc={args.target_acc}: dung tien huan luyen sau {epoch+1} vong')
+        break
+
 # Accuracy thuc do cua mo hinh SE BI TAN CONG, tinh thong nhat cho ca 3 nhanh
 # (--load_ckpt, --pretrain_rounds > 0, va --pretrain_rounds 0 / mo hinh khoi
 # tao ngau nhien chua train) -- khong con dua vao so trong ten file checkpoint.
