@@ -24,7 +24,8 @@ from client.client_utils import (
     estimate_static_LLG,
     estimate_static_ZLG,
 )
-from client.attacks import rlu_rho_mean, ZLGp_attack, LLGp_attack, LLG_attack
+from client.attacks import (rlu_rho_mean, ZLGp_attack, LLGp_attack, LLG_attack,
+                            RLU_attack)
 
 
 def oracle_dataset(client):
@@ -96,3 +97,123 @@ def print_collapse(table):
         d, ir = table[name]
         parts.append('%s: d=%.4f irec_ref=%.4f' % (name, d, ir))
     print('  [collapse] ' + ' | '.join(parts))
+
+
+# ===========================================================================
+#  INSPECTION BATTERY (them moi, khong sua code cu)
+#
+#  Hai phep do tra loi hai cau hoi khac nhau:
+#
+#  1. `anchor_provenance` -- NEO DEN TU DAU?
+#     RLU/ZLGp/LLGp dung tham so `model` DUY NHAT mot cho: de goi
+#     estimate_static_*. Nen truyen vao mot ban copy da nap global_weights
+#     thi ta doi DUNG cai neo, giu nguyen gradient that. Neu irec sut ve muc
+#     deu => thong tin cua neo den tu viec TRONG SO GHI NHO phan phoi cua
+#     client trong m buoc local, khong phai tu gradient.
+#
+#  2. `grad_ablation` -- GRADIENT CO THAT SU DUOC DOC KHONG?
+#     Thay G bang: hoan vi toa do (giu nguyen moi do lon, pha huy canh nhan),
+#     G cua client khac, hoac G nhan ti le. Neu irec khong doi => gradient
+#     chi la vat trang tri. Manh hon phep dat G=0 vi zero co the roi vao
+#     nhanh code suy bien.
+#
+#  CA HAI deu dung nhan that de tinh irec, giong moi phep do metric khac.
+# ===========================================================================
+
+_FOREIGN = {}   # kho gradient "ngoai lai" de lam ablation cross-client
+
+
+def stash_foreign(w_grad, b_grad):
+    """Luu gradient cua cua so DAU TIEN gap duoc, dung lam gradient ngoai lai."""
+    if 'w' not in _FOREIGN:
+        _FOREIGN['w'] = w_grad.detach().clone()
+        _FOREIGN['b'] = b_grad.detach().clone()
+
+
+def _seeded(fn):
+    """Chay fn() voi cung mot trang thai RNG, roi phuc hoi.
+
+    Bat buoc: estimate_static_* lay mau aux ngau nhien (np.random.choice +
+    DataLoader shuffle). Khong ghim RNG thi hai bien the se dung hai tap aux
+    khac nhau va phep so sanh mat sach.
+    """
+    st_t, st_n = torch.get_rng_state(), np.random.get_state()
+    try:
+        return fn()
+    finally:
+        torch.set_rng_state(st_t)
+        np.random.set_state(st_n)
+
+
+def _run_three(model, w_grad, b_grad, latent_dim, mu, aux_dataset, args,
+               O_bar, pj, impact, offset):
+    """Chay RLU/ZLGp/LLGp tren mot `model` cho truoc. Tra ve dict counts."""
+    G1 = torch.sum(w_grad, dim=-1)
+    out = {}
+    try:
+        out['RLU'] = _seeded(lambda: RLU_attack(
+            model=copy.deepcopy(model), w_grad_epochs=w_grad,
+            b_grad_epochs=b_grad, latent_dim=latent_dim, mu=mu,
+            aux_dataset=aux_dataset, args=args))
+    except Exception as exc:
+        print('  [inspect] RLU hong: %s' % exc)
+    try:
+        out['ZLGp'] = _seeded(lambda: ZLGp_attack(
+            model=copy.deepcopy(model), gradients_for_prediction=G1.clone(),
+            O_bar=O_bar, pj=pj, aux_dataset=aux_dataset, args=args))
+    except Exception as exc:
+        print('  [inspect] ZLGp hong: %s' % exc)
+    try:
+        out['LLGp'] = _seeded(lambda: LLGp_attack(
+            model=copy.deepcopy(model), gradients_for_prediction=G1.clone(),
+            impact=impact, offset=offset, aux_dataset=aux_dataset, args=args))
+    except Exception as exc:
+        print('  [inspect] LLGp hong: %s' % exc)
+    return out
+
+
+def run_inspection(args, model_drift, model_global, w_grad, b_grad, latent_dim,
+                   mu, aux_dataset, num_instances, n,
+                   O_bar=None, pj=None, impact=None, offset=None, seed=0):
+    """Chay toan bo loat kiem tra cho mot cua so. Tra ve {ten_bien_the: {pp: irec}}."""
+    common = dict(latent_dim=latent_dim, mu=mu, aux_dataset=aux_dataset,
+                  args=args, O_bar=O_bar, pj=pj, impact=impact, offset=offset)
+    res = {}
+
+    # --- goc: neo tren mo hinh DA TROI, gradient that -------------------
+    res['base'] = _run_three(model_drift, w_grad, b_grad, **common)
+
+    # --- PHEP 1: neo tren mo hinh GLOBAL, gradient that ----------------
+    res['anchor_global'] = _run_three(model_global, w_grad, b_grad, **common)
+
+    # --- PHEP 2a: hoan vi toa do lop (giu do lon, pha canh nhan) -------
+    #     hoan vi DONG BO ca w_grad (theo hang) va b_grad de O = mean(dW/db)
+    #     khong bi pha ve cau truc, chi mat canh voi nhan that.
+    rng = np.random.RandomState(seed)
+    perm = torch.as_tensor(rng.permutation(args.n_classes), dtype=torch.long)
+    res['shuffle'] = _run_three(model_drift, w_grad[perm].clone(),
+                                b_grad[perm].clone(), **common)
+
+    # --- PHEP 2b: gradient cua client khac -----------------------------
+    if 'w' in _FOREIGN and _FOREIGN['w'].shape == w_grad.shape:
+        res['foreign'] = _run_three(model_drift, _FOREIGN['w'].clone(),
+                                    _FOREIGN['b'].clone(), **common)
+
+    # --- PHEP 2c: nhan ti le (bat bien thang do?) ----------------------
+    for s in (0.1, 10.0):
+        res['scale%g' % s] = _run_three(model_drift, (w_grad * s).clone(),
+                                        (b_grad * s).clone(), **common)
+
+    return {k: {m: irec_of(c, num_instances, n) for m, c in v.items()}
+            for k, v in res.items()}
+
+
+def print_inspection(table):
+    """In mot dong moi bien the, de parse lai bang grep '[inspect]'."""
+    order = ['base', 'anchor_global', 'shuffle', 'foreign', 'scale0.1', 'scale10']
+    for name in order:
+        if name not in table:
+            continue
+        row = table[name]
+        parts = ['%s=%.4f' % (m, row[m]) for m in ('RLU', 'ZLGp', 'LLGp') if m in row]
+        print('  [inspect] %-14s %s' % (name, ' '.join(parts)))

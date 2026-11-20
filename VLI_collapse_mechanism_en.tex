@@ -1,0 +1,259 @@
+% ============================================================================
+%  THE COLLAPSE MECHANISM -- drop-in section for the ASIA CCS / ACM CCS
+%  paper. Split out of what was originally the front half of
+%  VLI_method_en.tex, per instruction: Method should describe \ourmethod{}
+%  only, not the baselines. This section is contribution (1) of the paper
+%  (the proof that aux-using methods collapse); VLI_method_en.tex is
+%  contribution (2)/(3) (\ourmethod{}'s two modes).
+%
+%  Ported and trimmed from TWO sources, deliberately NOT uniformly from
+%  VLI_report.tex:
+%    - RLU's diagnosis, Prop gap, Prop jensen, Prop lip: from
+%      VLI_report.tex ("The failure mechanism"), which is correct for
+%      these.
+%    - ZLG / ZLG+ / LLG+'s diagnosis: from VLI_baocao_final.tex's
+%      "Lo duy nhat con lai" / "Luong nan" argument instead, because
+%      VLI_report.tex's Theorem collapse applies Lemma~\ref{lem:norm}
+%      (a bias-gradient bound) directly to these three methods, which in
+%      the real implementation read the WEIGHT-gradient branch
+%      $\widetilde G$ (Section~\ref{sec:prelim-notation}), not $G$. That
+%      conflation was caught and fixed in VLI_preliminaries_en.tex; this
+%      file carries the fix through to the theorem that depends on it.
+%
+%  Proof-status convention carried over from the Vietnamese reports:
+%  [proved] = short algebraic proof, in Appendix~\ref{app:proofs};
+%  [argued] = reasoning given, explicitly NOT a proof -- flagged inline,
+%  never upgraded silently; [open] = not yet measured/derived, flagged as
+%  a concrete question rather than asserted either way. Do not remove
+%  these tags when editing; they are load-bearing for how strong a claim
+%  this section is allowed to make.
+%
+%  Dependencies: same theorem/macro environments as
+%  VLI_preliminaries_en.tex, plus \newtheorem{remark}{Remark}.
+%  \ref{sec:prelim}, \ref{sec:prelim-notation}, \ref{sec:prelim-facts},
+%  \ref{sec:prelim-baselines}, \ref{sec:related}, \ref{sec:eval},
+%  \ref{sec:method} (VLI_method_en.tex) point at sections defined
+%  elsewhere; \label{app:proofs} is bound in the appendix.
+%
+%  NOT ported here: numerical verification tables (Section numerics of
+%  VLI_report.tex) are evaluation, not mechanism; they belong in the
+%  paper's Evaluation section.
+% ============================================================================
+
+\section{The Collapse Mechanism}
+\label{sec:collapse}
+
+Section~\ref{sec:prelim} gave two facts (Lemma~\ref{lem:norm},
+Lemma~\ref{lem:identities}) and five baseline estimators in unified
+notation. This section uses the two facts to explain, for each baseline,
+\emph{why} it degrades as the attacked model trains -- and in one case,
+why it does not. Section~\ref{sec:method} then presents \ourmethod{},
+which this analysis motivates but does not itself require.
+
+\subsection{A general collapse argument}
+\label{sec:method-collapse}
+
+\begin{theorem}[Collapse of externally-calibrated estimators]
+\label{thm:collapse}
+Let an estimator of normalized class proportions take the form
+$\widehat\pi = \Phi(c - \sigma/n)$, where $\sigma$ is the signal the
+estimator reads (either $G$ or $\widetilde G$, Section~\ref{sec:prelim-notation}),
+$c$ depends only on information measured outside the attacked window, and
+$\Phi$ is $L_\Phi$-Lipschitz in a stated norm. Then
+\[
+ \bigl\|\widehat\pi - \Phi(c)\bigr\| \;\le\; \frac{L_\Phi}{n}\|\sigma\|_1 .
+\]
+Hence, whenever $\|\sigma\|_1 \to 0$, the estimate converges to $\Phi(c)$:
+a vector determined entirely by $c$ and not by the attacked labels.
+\end{theorem}
+
+\begin{proof}[\textnormal{[proved]}]
+Lipschitz continuity directly gives the bound; see
+Appendix~\ref{app:proofs}.
+\end{proof}
+
+By Lemma~\ref{lem:norm}, $\|G\|_1 \to 0$ as $\bar\epsilon\to0$
+unconditionally -- this is the case for RLU, which reads $G$ directly
+(Table~\ref{tab:baselines}). For ZLG, ZLG$^+$, and LLG$^+$, which read
+$\widetilde G$ instead, Theorem~\ref{thm:collapse} applies only once
+$\|\widetilde G\|_1 \to 0$ is established, which is not immediate: Section
+\ref{sec:method-branch} supplies it, under a condition this section makes
+explicit rather than assuming away.
+
+\subsection{Why the bias branch shrinks unconditionally}
+
+Lemma~\ref{lem:norm} already gives $\|G\|_1 \le 2n\bar\epsilon$ with no
+further hypothesis, because $\nabla_b = \tfrac1B\sum_i r_i$ (writing
+$r_i = p_i - e_{y_i}$) does not involve the embedding at all. RLU's $c$ is
+$\mathrm{shift}\cdot\bar\rho$ (Section~\ref{sec:prelim-baselines}), so
+Theorem~\ref{thm:collapse} applies to it immediately: $\widehat N \to
+n\,\mathrm{shift}/\|\mathrm{shift}\|_1$, a vector fixed by the auxiliary
+estimate $\mu_{\mathrm{aux}}$ alone.
+
+\subsection{The weight branch: a dilemma, not a clean bound}
+\label{sec:method-branch}
+
+The final layer's weight gradient is $\nabla_{W_{jd}} = \tfrac1B\sum_i
+r_{i,j}\,o_{i,d}$, so summing over $d$ gives $\widetilde G_j =
+\tfrac1B\sum_i r_{i,j}\,s_i$ with $s_i = \one^\top o_i \ge 0$
+(Section~\ref{sec:prelim-notation}). Writing $w_i = s_i/\bar O$ for the
+auxiliary estimate $\bar O$ that ZLG$^+$ and ZLG both divide by:
+
+\begin{lemma}[Weight-branch norm bound]
+\label{lem:tildenorm}
+\[
+ \frac{\widetilde G_j}{\bar O} \;=\;
+ \underbrace{\frac1n\sum_i r_{i,j}}_{\text{what the estimator assumes}}
+ \;+\;
+ \underbrace{\frac1n\sum_i (w_i-1)\,r_{i,j}}_{\text{residual}},
+ \qquad
+ \Bigl\|\frac{\widetilde G}{\bar O}\Bigr\|_1 \;\le\; 2\bar\epsilon(1+V),
+\]
+where $V = \bigl(\sum_i |w_i-1|\,\epsilon_i\bigr)/\bigl(\sum_i\epsilon_i\bigr)$
+measures the error-weighted deviation of $w_i$ from $1$.
+\end{lemma}
+
+\begin{proof}[\textnormal{[proved]}]
+Split the sum as shown and bound each term; see Appendix~\ref{app:proofs}.
+\end{proof}
+
+\begin{remark}[The dilemma]
+\label{rem:dilemma}
+Lemma~\ref{lem:tildenorm} does not by itself say whether ZLG$^+$ survives,
+because it exposes a genuine fork, not a loophole:
+\begin{itemize}
+ \item If $V$ is small, the bound is tight and $\|\widetilde G/\bar O\|_1
+ \to 0$ exactly as $\|G\|_1$ does, so Theorem~\ref{thm:collapse} applies
+ to ZLG$^+$ by the same mechanism as RLU. But $V$ small is precisely
+ ZLG$^+$'s \emph{own} modeling assumption -- the identity
+ $\widehat N_j = n(\bar p_j - \widetilde G_j/\bar O)$
+ (Section~\ref{sec:prelim-baselines}) is itself only accurate when
+ $s_i \approx \bar O$, i.e.\ when $V$ is small. The estimator's
+ justification and its failure mode are the same condition.
+ \item If $V$ is large, the residual term does not track the true labels
+ -- it is an $(w_i-1)$-weighted sum of a quantity ($r_{i,j}$) that is
+ already shrinking, not a label-correlated signal in its own right -- so
+ it adds noise to a vanishing estimate rather than rescuing it.
+\end{itemize}
+The second branch is \textbf{[argued]}, not proved: we have not shown the
+residual is literally uninformative, only that nothing in its
+construction ties it to the window's labels. Closing this gap -- bounding
+how much instance-recovery the residual term can contribute when $V$ is
+large -- is open.
+\end{remark}
+
+\begin{remark}[LLG$^+$'s calibration ratio may run the other way]
+\label{rem:llgp-protect}
+LLG$^+$'s calibration ratio is
+$\rho \propto (\bar s_{\mathrm{aux}}/\bar s_{\mathrm{train}})\,
+(\bar\epsilon_{\mathrm{aux}}/\bar\epsilon_{\mathrm{train}})$: the two
+factors move in \emph{opposite} directions as the model overfits, so the
+embedding-norm gap that this section identifies as a liability for
+ZLG$^+$ could instead partially offset Proposition~\ref{prop:gap}'s
+generalization gap for LLG$^+$. This is \textbf{[open]} -- a concrete,
+measurable quantity, not yet measured -- and would explain why the two
+methods need not degrade identically even though both read $\widetilde
+G$.
+\end{remark}
+
+ZLG (the original, dummy-data form) is not covered by either remark as
+written, since $V$ there is defined relative to a real auxiliary error
+rate that a fixed dummy image does not have. Whether ZLG's own $\bar
+p,\bar O$ drift away from the window's as training progresses is a
+separate, \textbf{[open]} question -- Theorem~\ref{thm:collapse} still
+applies in form (its hypothesis is only that $c$ is measured outside the
+window, Section~\ref{sec:prelim-baselines}), but the mechanism that would
+make $c$ fail to track the window is not Proposition~\ref{prop:gap}'s
+generalization-gap argument, which presumes a real data distribution.
+
+\subsection{Why the external magnitude does not shrink with the signal}
+
+\begin{proposition}[Held-out error gap]
+\label{prop:gap}
+If an example is misclassified by the $\argmax$ rule, then $p_{i,y_i} \le
+1/2$ and hence $\epsilon_i \ge 1/2$. Consequently, if the auxiliary error
+rate is $\tau_{\mathrm{err}}$, $\bar\epsilon_{\mathrm{aux}} \ge
+\tau_{\mathrm{err}}/2$. If $\bar\epsilon_{\mathrm{train}} \to 0$ while
+$\tau_{\mathrm{err}}$ stays bounded away from zero, then
+$\bar\epsilon_{\mathrm{aux}}/\bar\epsilon_{\mathrm{train}} \to \infty$.
+\end{proposition}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+This is the second half of the mechanism, and it applies to RLU, ZLG$^+$,
+and LLG$^+$ alike (all three read a real auxiliary error rate): Lemma
+\ref{lem:norm}/\ref{lem:tildenorm} say the attacked signal shrinks;
+Proposition~\ref{prop:gap} says the auxiliary magnitude entering $c$ does
+not. Their ratio diverges, so comparing them is a comparison between two
+quantities on incommensurable scales -- \emph{generalization gap, not
+estimator design, is what breaks these attacks.}
+
+\subsection{Two further defects specific to RLU}
+
+\begin{proposition}[Jensen gap in logit averaging]
+\label{prop:jensen}
+For a sample with margin $M$, $\epsilon = (1+e^M)^{-1} \approx e^{-M}$ for
+$M$ large and positive. If within-class margins are approximately
+$\mathcal N(\mu,\sigma^2)$, $\E[e^{-M}] = e^{-\mu+\sigma^2/2} \ge
+e^{-\E[M]} = e^{-\mu}$ by Jensen's inequality, with equality only at
+$\sigma=0$.
+\end{proposition}
+
+RLU's $\mathrm{shift} = \softmax(\mu_{\mathrm{aux}})$ substitutes a
+softmax of \emph{mean logits} for the mean of softmaxes -- exactly the
+substitution Proposition~\ref{prop:jensen} describes, systematically
+\emph{understating} error mass by a factor growing with $\sigma^2$, which
+training increases: the bias is largest precisely when the signal is
+weakest.
+
+\begin{proposition}[Clip-and-renormalize is not Lipschitz; projection is]
+\label{prop:lip}
+Let $R(y) = n\pos{y}/\|\pos{y}\|_1$ (used by RLU and, after clipping, by
+ZLG$^+$) and $\Pi_\simplex$ denote Euclidean projection onto $\simplex$.
+Then $R$ has unbounded Lipschitz constant while $\Pi_\simplex$ is
+non-expansive everywhere.
+\end{proposition}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+RLU's final normalization can therefore \emph{amplify} whatever noise
+survives the collapse above, rather than merely fail to correct it;
+Section~\ref{sec:eval} reports a measured amplification factor for $R$
+against exactly $1$ for $\Pi_\simplex$.
+
+\subsection{iLRG: a conditioning failure, not a calibration failure}
+
+iLRG uses no auxiliary statistic, so Theorem~\ref{thm:collapse} does not
+apply to it. Its difficulty is different: by Lemma~\ref{lem:identities},
+$G_j = -a_j + E_j$, so both terms vanish as $\bar\epsilon\to0$, and the
+bias gradient used as a \emph{denominator} in $\hat e_j =
+\nabla_{W_j}/\nabla_{b_j}$ tends to zero. The ratio's relative error is
+amplified without bound even though it remains finite in exact
+arithmetic, and the subsequent linear system grows ill-conditioned as
+$p_i\to e_{y_i}$ collapses every recovered probability vector toward a
+one-hot vector.
+
+\subsection{Summary of baseline diagnoses}
+
+\begin{table*}[t]
+\centering
+\caption{How each baseline fails (or does not), and the status of each
+claim.}
+\label{tab:diagnoses}
+\begin{tabular}{@{}lp{3.6cm}p{6.8cm}l@{}}
+\toprule
+Method & Mechanism & Limit or symptom & Status \\
+\midrule
+iLRG & conditioning & division by a vanishing bias gradient; near-singular pseudo-inverse & proved \\
+LLG & none (scale-free) & survives; assumes $r_j\equiv1$, uniform $Q$, multiplies a single-batch answer by $m$ & proved \\
+ZLG & Thm~\ref{thm:collapse}; branch condition in Remark~\ref{rem:dilemma} & $\widehat N \to n\bar p$ if $V$ small; mechanism for $c$ drifting is open for dummy data & mixed \\
+LLG$^+$ & Thm~\ref{thm:collapse} + Prop~\ref{prop:gap}; possibly offset by Remark~\ref{rem:llgp-protect} & auxiliary offset dominates $\widetilde G$; net effect on LLG$^+$ vs.\ LLG is open & mixed \\
+ZLG$^+$ & Thm~\ref{thm:collapse} + Prop~\ref{prop:gap}; branch condition in Remark~\ref{rem:dilemma} & $\widehat N \to n\bar p \approx$ uniform prior & mixed \\
+RLU & Thm~\ref{thm:collapse} + Props~\ref{prop:gap},~\ref{prop:jensen},~\ref{prop:lip} & $\widehat N \to n\,\mathrm{shift}$; Jensen bias $e^{\sigma^2/2}$; non-Lipschitz normalization & proved \\
+\bottomrule
+\end{tabular}
+\end{table*}

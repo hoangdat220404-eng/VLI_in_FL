@@ -1,0 +1,159 @@
+% ============================================================================
+%  RELATED WORK -- drop-in section for the ASIA CCS / ACM CCS paper.
+%
+%  Assumptions made while writing this (check before using):
+%    - Placed after the Introduction, before Threat Model / Preliminaries.
+%    - "our attack" is referenced only as \ourmethod{} and by a forward
+%      \ref{sec:method}; the macro is defined below so you can bind it to
+%      whichever name (VLI*, ZLI*, ZLI) the rest of the paper has settled on
+%      without editing this file again.
+%    - No .bib file exists yet in the repo; a plain bibitem list matching
+%      every \cite key used here is given at the end. Merge it into your
+%      bibliography (or convert to BibTeX) before compiling.
+%    - iLRG is cited under its official name (the paper's own GitHub repo is
+%      BUAA-CST/iLRG); "iRLG", used in this codebase and in RLU's own related
+%      work section, is a naming carry-over this paper does not repeat.
+% ============================================================================
+
+\newcommand{\ourmethod}{our attack} % bind to \VLIstar or \ZLIstar once named
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Gradient inversion attacks.}
+Federated learning lets clients contribute to a shared model by exchanging
+gradients or weight updates rather than raw data~\cite{mcmahan2017fedavg}.
+DLG~\cite{zhu2019dlg} showed this exchange is not safe: matching a dummy
+input and a relaxed, continuous label distribution against the observed
+gradient recovers both, though the joint search degrades as batch size and
+resolution grow. Follow-up work improved the image-reconstruction half of
+this search with cosine-similarity objectives and total-variation
+regularization, reaching ImageNet resolution~\cite{geng2022zlg}, but every
+such method still pays for the label half of the search, either by
+optimizing over it jointly or by avoiding batches with repeated labels.
+This motivated recovering the label distribution first, in closed form,
+and using it to constrain reconstruction afterward --- reported to improve
+reconstructed image quality in its own right~\cite{ma2023ilrg,chen2024rlu}.
+We are concerned entirely with that first stage: recovering the per-class
+\emph{instance count} of a batch from a shared update, independent of
+whichever image-reconstruction attack follows it.
+
+\paragraph{Label-distribution inference attacks.}
+A series of closed-form estimators recover per-class counts directly from
+the sign and magnitude of the final layer's gradient, without an
+optimization loop over inputs. iDLG~\cite{zhao2020idlg} first showed that a
+single sample's bias gradient is negative only at its ground-truth class,
+but only at batch size one; GradInversion~\cite{yin2021gradinversion}
+extended the same sign rule to full batches using gradient magnitude, at
+the cost of assuming no two samples share a label. Two methods estimate
+their per-class statistics from the attacked update alone: LLG~\cite{wainakh2022llg}
+derives a per-class impact and offset analytically from the single observed
+gradient and peels instances off greedily; iLRG~\cite{ma2023ilrg} reconstructs
+a per-class embedding from the final layer's gradients and feeds it back
+through the \emph{attacked model's own} classifier to approximate
+post-softmax probabilities, solving the resulting linear system via the
+Moore--Penrose pseudo-inverse. The method of Geng et al.~\cite{geng2022zlg},
+referred to as ZLG in follow-up work though not named as such in the
+original paper, is likewise self-contained in its original form: it
+estimates the same kind of per-class confidence and mean embedding by
+passing \emph{dummy}, synthetically generated images through the current
+model rather than any real dataset.
+
+Three variants strengthen these estimates with a small auxiliary dataset
+the server is assumed to hold, drawn from a distribution similar to the
+clients' data. Wainakh et al.\ introduce this variant themselves: LLG+~\cite{wainakh2022llg}
+re-estimates LLG's impact and offset by running the current model on real
+auxiliary samples in place of dummy ones. ZLG+ is not Geng et al.'s own
+design; it was introduced by Chen \& Vikalo~\cite{chen2024rlu} as a fairness
+baseline for RLU, substituting the same real auxiliary set for ZLG's
+dummy-data estimation step so that every baseline in their comparison draws
+on the same side information. RLU~\cite{chen2024rlu} itself poses recovery
+as a least-squares problem whose per-class prior is obtained by Monte Carlo
+evaluation of the auxiliary set, and is, to our knowledge, the first in
+this line to remain effective across multiple local epochs, optimizers, and
+non-IID partitions. Because auxiliary dependence enters ZLG+ as a
+benchmarking choice rather than a property of the original attack, we
+evaluate ZLG under both its original (dummy-data) and auxiliary-data
+(ZLG+) forms throughout this paper. RLG~\cite{dang2021rlg} recovers only the
+\emph{set} of labels present in a batch, across a broader range of
+architectures and modalities including speech; because it targets class
+existence rather than per-class counts, it has no counterpart to the
+instance-level recovery rate we use throughout this paper, and we exclude
+it from our count-level comparison.
+
+All three auxiliary-dependent baselines above are reported to degrade as
+the attacked model converges, which their own authors attribute to
+shrinking gradient signal. Section~\ref{sec:method} argues this account is
+incomplete: each of these attacks recovers counts by comparing the
+observed update against a center derived, in whole or in part, from
+auxiliary statistics, and that center does not shrink along with the
+update as training progresses. The two quantities are tied together only
+by the gradient's own magnitude, so as that magnitude falls the recovered
+distribution is increasingly determined by the auxiliary center rather
+than by the client's data. This scale mismatch, not merely the shrinking
+signal itself, is what motivates \ourmethod{}, an attack whose recovery
+rule is invariant to the scale of the update and therefore does not
+require an auxiliary dataset to supply that center at all.
+
+% ----------------------------------------------------------------------------
+% Bibliography entries for the \cite keys used above.
+% No .bib exists in the repo yet -- merge these into one, or convert to
+% \bibitem form inside your existing \begin{thebibliography}.
+% ----------------------------------------------------------------------------
+% @inproceedings{mcmahan2017fedavg,
+%   author = {McMahan, H. Brendan and Moore, Eider and Ramage, Daniel and Hampson, Seth and Ag{\"u}era y Arcas, Blaise},
+%   title  = {Communication-Efficient Learning of Deep Networks from Decentralized Data},
+%   booktitle = {AISTATS},
+%   year   = {2017}
+% }
+% @inproceedings{zhu2019dlg,
+%   author = {Zhu, Ligeng and Liu, Zhijian and Han, Song},
+%   title  = {Deep Leakage from Gradients},
+%   booktitle = {NeurIPS},
+%   year   = {2019}
+% }
+% @article{zhao2020idlg,
+%   author  = {Zhao, Bo and Mopuri, Konda Reddy and Bilen, Hakan},
+%   title   = {iDLG: Improved Deep Leakage from Gradients},
+%   journal = {arXiv:2001.02610},
+%   year    = {2020}
+% }
+% @inproceedings{yin2021gradinversion,
+%   author    = {Yin, Hongxu and Mallya, Arun and Vahdat, Arash and Alvarez, Jose M. and Kautz, Jan and Molchanov, Pavlo},
+%   title     = {See through Gradients: Image Batch Recovery via GradInversion},
+%   booktitle = {CVPR},
+%   year      = {2021}
+% }
+% @inproceedings{wainakh2022llg,
+%   author    = {Wainakh, Aidmar and Ventola, Fabrizio and M{\"u}{\ss}ig, Till and Keim, Jens and Garcia Cordero, Carlos and Zimmer, Ephraim and Grube, Tim and Kersting, Kristian and M{\"u}hlh{\"a}user, Max},
+%   title     = {User-Level Label Leakage from Gradients in Federated Learning},
+%   booktitle = {PETS},
+%   year      = {2022},
+%   note      = {arXiv:2105.09369}
+% }
+% @inproceedings{geng2022zlg,
+%   author    = {Geng, Jiahui and Mou, Yongli and Li, Feifei and Li, Qing and Beyan, Oya and Decker, Stefan and Rong, Chunming},
+%   title     = {Towards General Deep Leakage in Federated Learning},
+%   booktitle = {arXiv:2110.09074},
+%   year      = {2022}
+% }
+% @inproceedings{ma2023ilrg,
+%   author    = {Ma, Kailang and Sun, Yu and Cui, Jian and Li, Dawei and Guan, Zhenyu and Liu, Jianwei},
+%   title     = {Instance-wise Batch Label Restoration via Gradients in Federated Learning},
+%   booktitle = {ICLR},
+%   year      = {2023}
+% }
+% @inproceedings{chen2024rlu,
+%   author    = {Chen, Huancheng and Vikalo, Haris},
+%   title     = {Recovering Labels from Local Updates in Federated Learning},
+%   booktitle = {ICML},
+%   year      = {2024},
+%   note      = {arXiv:2405.00955}
+% }
+% @inproceedings{dang2021rlg,
+%   author    = {Dang, Trung and Thakkar, Om and Ramaswamy, Swaroop and Mathews, Rajiv and Chin, Peter and Beaufays, Fran{\c c}oise},
+%   title     = {Revealing and Protecting Labels in Distributed Training},
+%   booktitle = {NeurIPS},
+%   year      = {2021},
+%   note      = {arXiv:2111.00556}
+% }

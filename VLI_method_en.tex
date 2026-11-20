@@ -1,0 +1,222 @@
+% ============================================================================
+%  METHOD -- drop-in section for the ASIA CCS / ACM CCS paper.
+%  Describes \ourmethod{} only; the baseline collapse analysis that
+%  motivates it lives in Section~\ref{sec:collapse}
+%  (VLI_collapse_mechanism_en.tex) and is not repeated here.
+%
+%  Ported and trimmed from VLI_report.tex ("VLI and VLI*"), which is
+%  correct for this content (unlike its baseline-collapse section).
+%
+%  Proof-status convention carried over from the Vietnamese reports:
+%  [proved] = short algebraic proof, in Appendix~\ref{app:proofs}. This
+%  section has no [argued] or [open] claims of its own; those live in
+%  Section~\ref{sec:collapse}.
+%
+%  Dependencies: same theorem/macro environments as
+%  VLI_preliminaries_en.tex and VLI_collapse_mechanism_en.tex.
+%  \ref{sec:prelim}, \ref{sec:prelim-notation}, \ref{sec:collapse},
+%  \ref{sec:eval} point at sections defined elsewhere; \label{app:proofs}
+%  is bound in the appendix. \ourmethod{} is the same macro as in the
+%  other files. Cites \ref{lem:tildenorm} and \ref{rem:dilemma} from
+%  Section~\ref{sec:collapse} once, in Corollary~\ref{cor:no-branch}, to
+%  state what \ourmethod{} avoids without re-deriving it.
+%
+%  NOT ported here: numerical verification tables (Section numerics of
+%  VLI_report.tex) are evaluation, not method; they belong in the paper's
+%  Evaluation section.
+% ============================================================================
+
+\section{Method}
+\label{sec:method}
+
+Section~\ref{sec:collapse} showed that every auxiliary-calibrated
+baseline we compare against borrows, from outside the attacked window, a
+quantity of \emph{absolute magnitude} that does not shrink with the
+window's own training error (Lemma~\ref{lem:norm}, Proposition~\ref{prop:gap}).
+This section presents \ourmethod{}, built around the opposite design
+choice: a quantity of absolute magnitude never enters it at all.
+
+\subsection{The design principle}
+
+By Lemma~\ref{lem:identities}, $a_j = N_j r_j\bar\epsilon$: the label
+information lies in the \emph{relative} structure of $G$ across classes,
+while $\bar\epsilon$ -- the quantity that vanishes under training --
+enters only as a common factor. An estimator that reads $G$ only through
+ratios of its own coordinates therefore never needs to compare it against
+anything of fixed external scale.
+
+\begin{assumption}[Symmetric error geometry]
+\label{ass:sym}
+All present classes have equal mean error ($r_j=1$), every class
+distributes its error mass uniformly over the others
+($Q_{jk}=1/(C-1)$, $k\ne j$), at least one class is absent, and
+$\bar\epsilon>0$.
+\end{assumption}
+
+Assumption~\ref{ass:sym} is false for any real model; the next result is
+why it is nonetheless the right default rather than a simplification.
+
+\begin{proposition}[Uniqueness under label exchangeability]
+\label{prop:exchange}
+The uniform matrix $Q_{jk}=1/(C-1)$ ($k\ne j$), $Q_{jj}=0$, is the unique
+row-stochastic, zero-diagonal matrix invariant under every permutation of
+class labels.
+\end{proposition}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+An attacker with no class-specific side information has no basis for
+breaking symmetry among labels; Proposition~\ref{prop:exchange} says the
+uniform choice is the only admissible one on these grounds, not a
+convenience. Proposition~\ref{prop:weak} (below) shows this is more
+robust than it looks.
+
+\subsection{The closed form}
+
+\begin{theorem}[Closed form]
+\label{thm:closed}
+Under Assumption~\ref{ass:sym},
+\[
+ G_j = \frac{n\bar\epsilon - Ca_j}{C-1}, \qquad
+ G_{\max} = \frac{n\bar\epsilon}{C-1} \ \ (\text{at the absent class}),
+ \qquad
+ \boxed{\,N_j = \frac{n}{C}\Bigl(1-\frac{G_j}{G_{\max}}\Bigr)\,} ,
+\]
+invariant under $G \mapsto cG$ for any $c>0$.
+\end{theorem}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+$\bar\epsilon$ cancels in the last step: $G_{\max}$ is an
+\emph{in-window thermometer} for $\bar\epsilon$, read from the attacked
+update itself (an absent class has $a_j=0$, so its coordinate reports the
+error scale directly) rather than borrowed from outside it. Where RLU,
+ZLG$^+$, and LLG$^+$ borrow that scale from auxiliary data and are
+punished by Proposition~\ref{prop:gap} (Section~\ref{sec:collapse}),
+\ourmethod{} does not need to.
+
+\subsection{Choosing the denominator $G^*$ in practice}
+\label{sec:method-gstar}
+
+Theorem~\ref{thm:closed} defines $G_{\max}$ as the coordinate of $G$ at
+\emph{the} absent class, which Assumption~\ref{ass:sym} guarantees is
+unique. Real windows can have several absent or near-absent classes, and
+measurement noise can make any single coordinate of $G$ an unreliable
+denominator on its own: if the coordinate used as $G^*$ is inflated by a
+factor $(1+b)$ over its ideal value, every recovered count shrinks toward
+the uniform prior by the same factor,
+$\widehat N_j = \tfrac nC + \lambda\bigl(N_j - \tfrac nC\bigr)$ with
+$\lambda = 1/(1+b)$ -- so which coordinate, or combination of
+coordinates, is used as $G^*$ is a practical choice with a direct,
+measurable effect on recovery, not a detail. We implement three:
+
+\begin{table}[t]
+\centering
+\caption{Choices of $G^*$ in $N_j = \tfrac nC(1-G_j/G^*)$. $S^+ = \{j :
+G_j>0\}$ denotes the positive coordinates of $G$.}
+\label{tab:gstar}
+\small
+\begin{tabular}{@{}llp{3.1cm}@{}}
+\toprule
+Variant & $G^*$ & Exact under Assumption~\ref{ass:sym} \emph{iff} \\
+\midrule
+\texttt{max}    & $\max_j G_j$                 & always (by construction) \\
+\texttt{mean+}  & $\mathrm{mean}_{j\in S^+} G_j$ & $|S^+|=1$ \\
+\texttt{med+}   & $\mathrm{median}_{j\in S^+} G_j$ & $|S^+|=1$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{max} is the literal reading of Theorem~\ref{thm:closed} and is
+exact whenever the theorem's hypotheses hold, but a single coordinate is
+also the most exposed to noise inflating $b$. \texttt{mean+} and
+\texttt{med+} average over every positive coordinate instead of trusting
+one, which costs exactness when more than one class is genuinely absent
+($|S^+|>1$, where the theorem no longer pins all of them to the same
+value) but empirically reduces $b$ when the nominal maximum is itself an
+outlier -- \texttt{med+} in particular discards exactly the inflation
+that would otherwise dominate \texttt{mean+}'s average. \texttt{med+} is
+the $q=0.5$ case of the one-parameter family
+$G^*_q = \mathrm{quantile}_q(\{G_j\}_{j\in S^+})$ that the implementation
+also supports; we report \texttt{max}, \texttt{mean+}, and \texttt{med+}
+as the three fixed points of this family worth naming, and leave sweeping
+$q$ to Section~\ref{sec:eval}.
+
+\begin{corollary}[\ourmethod{} does not inherit the weight-branch dilemma]
+\label{cor:no-branch}
+\ourmethod{} reads $G$ directly (Table~\ref{tab:baselines}), never
+$\widetilde G$. Consequently Lemma~\ref{lem:tildenorm}'s residual term,
+and the dilemma of Remark~\ref{rem:dilemma} (Section~\ref{sec:collapse}),
+do not arise for \ourmethod{} regardless of how $w_i$ behaves.
+\end{corollary}
+
+\begin{proposition}[Scale invariance and structural validity]
+\label{prop:invariance}
+The map $\Psi: G \mapsto N$ of Theorem~\ref{thm:closed} satisfies
+$\Psi(cG)=\Psi(G)$ for every $c>0$; its output is nonnegative and sums to
+$n$ by construction (no clipping or renormalization step is required),
+and under Assumption~\ref{ass:sym} it reproduces $N_j - N_k$ exactly in
+its coordinate differences.
+\end{proposition}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+No external quantity of absolute magnitude enters $\Psi$ at all, so
+Theorem~\ref{thm:collapse} (Section~\ref{sec:collapse}) cannot describe
+it: Proposition~\ref{prop:invariance}'s first clause is the reason, not
+merely a consequence. Needing no clipping or renormalization step also
+means \ourmethod{} never exercises Proposition~\ref{prop:lip}'s
+non-Lipschitz map; its repair, when one is needed, is the non-expansive
+projection $\Pi_\simplex$ instead.
+
+\begin{proposition}[A weaker sufficient condition]
+\label{prop:weak}
+Theorem~\ref{thm:closed} holds exactly whenever $r_j=1$ on present
+classes, at least one class is absent, and the incoming error mass
+satisfies $(Q^Ta)_j = (\sum_k a_k - a_j)/(C-1)$ for every $j$ -- a
+constraint on the \emph{aggregate} inflow to each class, strictly weaker
+than requiring $Q$ itself to be uniform.
+\end{proposition}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+\subsection{An oracle upper bound}
+
+\begin{theorem}[Recovery with known difficulty and confusion geometry]
+\label{thm:general}
+If the per-class difficulty $r$ and confusion matrix $Q$ (Section
+\ref{sec:prelim-notation}) were known exactly, the unique nonnegative
+solution of $G=-(I-Q^T)a$ with a zero coordinate at the known absent
+class recovers the true counts exactly.
+\end{theorem}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+\begin{corollary}[Cost of assuming $r\equiv1$ under known $Q$]
+\label{cor:kappa}
+If $Q$ is known and exact but $r$ is (incorrectly) taken to be uniform,
+the instance-recovery rate is at least $1/\kappa$, where
+$\kappa=r_{\max}/r_{\min}$ over present classes.
+\end{corollary}
+
+\begin{proof}[\textnormal{[proved]}]
+See Appendix~\ref{app:proofs}.
+\end{proof}
+
+Theorem~\ref{thm:general} is \emph{not} an attack -- $r$ and $Q$ are
+oracle inputs no adversary in Section~\ref{sec:threat}'s model has
+access to. Its role is a ceiling: \ourmethod{} (Theorem~\ref{thm:closed})
+is the deployable estimator, Theorem~\ref{thm:general} is what no amount
+of engineering beyond it can buy without that extra knowledge, and
+Corollary~\ref{cor:kappa} bounds the gap between them in terms of a
+single interpretable quantity.

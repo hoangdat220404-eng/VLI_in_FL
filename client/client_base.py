@@ -11,7 +11,8 @@ from client.client_utils import estimate_static_RLU, estimated_entropy_from_grad
 from client.client_utils import estimate_static_LLG,estimate_static_ZLG
 from client.client_utils import create_synthetic_basis_matrix, calculate_distribution_ratios, estimate_static_VLI, estimate_static_VLI_RLU, calculate_dynamic_boost
 from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form, rlu_diag_print
-from client.experiments import collapse_reference, print_collapse
+from client.experiments import (collapse_reference, print_collapse,
+                                run_inspection, print_inspection, stash_foreign)
 
 import torch.nn.functional as F
 
@@ -842,6 +843,27 @@ class Client(object):
                         _ghi(_tag, VLI_star_closed_form(_Gs, args=self.args, gmax=_gv))
                     except Exception as _e:
                         _bo(_tag, _e)
+
+                # ---------- INSPECTION BATTERY (them moi) ----------
+                # Hai cau hoi: neo den tu dau, va gradient co that su duoc doc.
+                # Khong sua attacks.py: RLU/ZLGp/LLGp dung `model` duy nhat mot
+                # cho (de goi estimate_static_*), nen truyen mot ban copy da nap
+                # global_weights la doi DUNG cai neo, giu nguyen gradient that.
+                if getattr(self.args, 'inspect', False):
+                    _n_i = self.args.batch_size * self.args.local_epochs
+                    stash_foreign(w_grad_epochs, b_grad_epochs)
+                    _m_glob = copy.deepcopy(self.model)
+                    _m_glob.load_state_dict(global_weights)
+                    try:
+                        print_inspection(run_inspection(
+                            self.args, self.model, _m_glob,
+                            w_grad_epochs, b_grad_epochs, self.latent_dim,
+                            self.mu, self.aux_dataset, num_instances, _n_i,
+                            O_bar=O_bar, pj=pj, impact=impact, offset=offset,
+                            seed=count_computed))
+                    except Exception as _e:
+                        print('  [inspect] bo qua cua so nay: %s' % _e)
+                    del _m_glob
 
                 if getattr(self.args, 'collapse_diag', False):
                     _n_w = self.args.batch_size * self.args.local_epochs

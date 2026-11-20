@@ -1,0 +1,126 @@
+% ============================================================================
+%  THREAT MODEL -- drop-in section for the ASIA CCS / ACM CCS paper.
+%
+%  Assumptions made while writing this (check before using):
+%    - Placed after Related Work, before Methodology/Preliminaries -- no
+%      paper notation (W, b, G, ...) is used here; that is introduced fresh
+%      in Methodology.
+%    - Organized around LLG's own three-axis taxonomy (access point / mode /
+%      observation), not around any of our own prior drafts: it is the one
+%      taxonomy already native to the baselines this paper compares against,
+%      and its "observation" axis is exactly the aux-free/aux-dependent split
+%      Related Work is built on.
+%    - \ourmethod{} is the same macro as in VLI_related_work_en.tex; define
+%      it once per document, not in both files.
+%    - \ref{sec:related}, \ref{sec:method}, \ref{sec:eval} are forward
+%      references to sections this file does not define; bind the labels
+%      when you place this text in the full paper.
+%    - The auxiliary-set instantiation (a stratified --prop fraction of the
+%      labeled test set) is stated as a fact about this paper's experiments,
+%      not as part of the adversary's definition.
+% ============================================================================
+
+\section{Threat Model}
+\label{sec:threat}
+
+We adopt the threat model common to the label-distribution inference
+attacks surveyed in Section~\ref{sec:related}, following the taxonomy
+Wainakh et al.~\cite{wainakh2022llg} use to define it: an \emph{access
+point} at which the adversary obtains information, a \emph{mode} in which
+it acts, and an \emph{observation} tier describing how much it is given
+beyond the update itself.
+
+\paragraph{Access point.}
+The adversary is the central server that aggregates client updates under a
+standard federated learning protocol. In each round it broadcasts a global
+model to a client, the client runs several steps of local SGD on its own
+data, and reports an update of that model back for aggregation; the
+adversary's access point is exactly this report. We consider this under
+three aggregation rules -- FedAvg, FedProx, and FedDyn -- since the attacks
+compared in this paper differ in how they read the client-side
+regularization each one adds to that report.
+
+\paragraph{Mode.}
+The adversary is \emph{honest-but-curious}: it executes the aggregation
+protocol exactly as specified, broadcasting genuine models and aggregating
+updates faithfully, and does not poison the model, inject gradients, or
+impersonate a client. Its analysis is passive and confined to a single
+client's report within a single round; it requires no persistence across
+rounds, no access to other clients' updates, and no collusion. This is the
+mode assumed by every attack we compare.
+
+\paragraph{Observation.}
+Every attack we compare knows the global model's architecture and
+parameters as broadcast, the client's reported update for the final
+linear (classification) layer -- its weight and bias gradients,
+accumulated over the client's local steps, but not updates to earlier
+layers -- and the batch size and number of local steps, needed only to
+know how many samples the recovered counts must sum to. None of them
+know the client's raw inputs or labels. Beyond this common ground, they
+differ along two independent axes.
+
+\emph{Side data.} The attacks fall into the same two tiers
+Section~\ref{sec:related} organizes the baselines by:
+\begin{itemize}
+ \item \emph{White-box only.} No data beyond the above. LLG, iLRG, ZLG in
+ its original form, and \ourmethod{} operate at this tier.
+ \item \emph{White-box with auxiliary data.} In addition, the adversary
+ holds a small auxiliary dataset, distributionally similar to, but not
+ identical with, the target client's local data. LLG$^+$, ZLG$^+$, and
+ RLU require this tier to calibrate a statistic they compare the
+ client's update against. In our experiments this set is instantiated
+ the same way RLU's own evaluation instantiates it: a fixed,
+ class-stratified fraction of the server's labeled test set, held out
+ from every client's training data.
+\end{itemize}
+Because this second tier is strictly stronger, a fair comparison must
+report which tier each result assumes; we do so throughout, and
+Section~\ref{sec:method} examines what the second tier buys an attack as
+the attacked model is trained toward convergence.
+
+\emph{Rate knowledge.} RLU alone additionally needs the learning rate
+$\eta$ and the aggregation rule's own regularization coefficient (FedAvg's
+$\gamma$ or FedProx's $\mu$): its posterior-search step is derived by
+unrolling the SGD recursion over the local window, which these two
+quantities parameterize. No other attack we compare, \ourmethod{}
+included, uses either quantity -- the closed-form estimators in this
+family recover counts from the shape of the update alone.
+
+\paragraph{A note on the observed signal.}
+We describe the attacked quantity as the client's \emph{accumulated
+gradient} over its local steps rather than the \emph{weight delta} the
+server literally receives under FedAvg. The two coincide exactly under the
+plain-SGD configuration used throughout this paper (zero momentum, no
+weight decay on the classification layer): by the SGD update rule, the
+reported delta is $-\eta$ times the sum of the per-step gradients, so
+recovering one is equivalent to recovering the other up to the known
+scalar $\eta$. This is the same idealization RLU's own estimator relies on
+when it reads a quantity $O$ as a ratio of weight- to bias-update, and it
+is why FedProx's proximal term can be undone with a closed-form
+coefficient ($\bar\rho$ in Section~\ref{sec:method}) rather than treated as
+unobserved noise. It is not exact under FedDyn, whose optimizer applies an
+additional weight-decay-like correction outside the gradient we read; we
+flag this as an open simplification rather than claim the equivalence
+there.
+
+\paragraph{Goal and success criterion.}
+Given one client's report for a window of $m$ local steps (equivalently
+$mB$ training samples, where $B$ is the batch size), the adversary's goal
+is to recover the number of samples $N_j$ belonging to each class
+$j \in \{1,\dots,C\}$ trained on in that window -- the window's \emph{label
+distribution} -- without reconstructing the samples themselves. This is
+strictly weaker than full data reconstruction and strictly stronger than
+merely detecting which classes are present; Section~\ref{sec:eval}
+formalizes both the class-existence and instance-count views of success
+(cAcc and irec) used throughout this paper.
+
+\paragraph{Out of scope.}
+We do not consider reconstructing the client's inputs, which prior work
+treats as a separate, downstream attack that a recovered label
+distribution can assist (Section~\ref{sec:related}); membership or
+property inference beyond the label distribution of the attacked window;
+an actively malicious server that deviates from the stated aggregation
+rule; Byzantine or colluding clients; or defenses such as secure
+aggregation, gradient compression, or differential privacy, which change
+what the adversary in this model is given and which we leave to future
+work.

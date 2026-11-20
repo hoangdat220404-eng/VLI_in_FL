@@ -374,6 +374,16 @@ rồi nhân lại cho tổng bằng $n$; mã nguồn có thêm \texttt{int} trư
 là độ tin cậy trung bình vào lớp đúng $j$ trên dữ liệu phụ trợ, và $\bar O$ là
 tổng embedding trung bình trên dữ liệu phụ trợ.
 
+\emph{Ghi chú nguồn gốc:} việc ước lượng $\bar p$, $\bar O$ từ dữ liệu phụ
+trợ \textbf{thật} không phải thiết kế gốc của Geng và cộng sự --- bài báo
+gốc ước lượng cả hai đại lượng này bằng cách cho \emph{dữ liệu giả} (ảnh
+sinh tổng hợp) đi qua mô hình (một cấu trúc zero-shot, đúng với động cơ họ
+tuyên bố: không cần tập dữ liệu ngoài nào). Dạng dùng dữ liệu phụ trợ thật
+ở đây và trong suốt báo cáo này theo đúng baseline ``ZLG$^+$'' mà Chen và
+Vikalo (RLU) đặt ra để so sánh công bằng giữa các phương pháp, tất cả đều
+dùng chung tập phụ trợ $A$; bản dữ liệu giả gốc được gọi là ZLG (không có
+dấu $+$) ở những chỗ cần phân biệt hai dạng.
+
 \paragraph{RLU (Chen và Vikalo, 2024).}
 Với tín hiệu bias trung bình $G/n$ như mã nguồn,
 \begin{equation}

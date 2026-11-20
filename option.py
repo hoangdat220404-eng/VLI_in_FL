@@ -86,6 +86,11 @@ def args_parser():
                              'Khong phai tan cong kha thi - chi de tach "uoc luong toi" khoi "hong cau truc".')
     parser.add_argument('--collapse_diag', action='store_true',
                         help='Do khoang cach tu dau ra toi diem tham chieu khi tin hieu = 0, va irec cua chinh diem do.')
+    parser.add_argument('--inspect', action='store_true',
+                        help='Loat kiem tra cho RLU/ZLGp/LLGp moi cua so: (1) neo do tren mo hinh GLOBAL '
+                             'thay vi mo hinh da troi -> tach kenh "trong so ghi nho" khoi kenh gradient; '
+                             '(2) thay gradient bang hoan vi toa do / gradient client khac / nhan ti le '
+                             '-> do xem gradient co that su duoc doc khong.')
 
     args = parser.parse_args()
     return args

@@ -1,0 +1,246 @@
+% ============================================================================
+%  PRELIMINARIES -- drop-in section for the ASIA CCS / ACM CCS paper.
+%  Ported and trimmed from VLI_report.tex (Sections "Notation",
+%  "Exact identities", "Baseline estimators"), per instruction: this section
+%  exists only to support Method, not to stand alone. All proofs are moved
+%  to the appendix; only statements and formulas Method cites are kept.
+%
+%  Dependencies this file assumes the master document's preamble provides
+%  (all already present in VLI_report.tex's preamble):
+%    \newtheorem{lemma}{Lemma}, {theorem}{Theorem}, {proposition}{Proposition}
+%    \newcommand{\pos}[1]{\left[#1\right]_+}, \simplex, \softmax, \LSE,
+%    \argmin, \argmax, \R, \E, \one
+%    \usepackage{array}  -- for well-behaved p{} column vertical alignment
+%    in the notation table below, sized to \columnwidth so it fits one
+%    column under a two-column (ACM) class and the full text width under
+%    a one-column one.
+%    The baseline-comparison table uses \begin{table*}, which spans both
+%    columns under a two-column class (reduces to an ordinary table under
+%    a one-column one) -- it is a float, so it may drift to the top of a
+%    page/column rather than sit exactly where called.
+%  \label{app:proofs} is a forward reference to the appendix holding the
+%  proofs of Lemma~\ref{lem:norm} and Lemma~\ref{lem:identities}; bind it
+%  when this section is placed in the full paper. \ref{sec:threat} and
+%  \ref{sec:method} likewise point at sections defined elsewhere.
+%
+%  Cut relative to VLI_report.tex: both lemma proofs; the "difficulty
+%  spread" row $\kappa$ and the confusion-matrix row $Q$, $v$ (kept only if
+%  Method's generalized estimator / oracle bound is included -- add back
+%  the two table rows and the $Q$ definition display if so); the long
+%  discussion paragraphs around each lemma; the three-part zero-sum remark
+%  is reduced to the one consequence Method uses.
+% ============================================================================
+
+\section{Preliminaries}
+\label{sec:prelim}
+
+\subsection{Setting and notation}
+\label{sec:prelim-notation}
+
+Recall from Section~\ref{sec:threat} that the adversary observes one
+client's accumulated final-layer gradient over a window of $m$ local
+steps of batch size $B$. We analyze this window as $n = mB$ examples drawn
+from $C$ classes. For example $i$:
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}l p{0.72\columnwidth}@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$y_i$ & true label of example $i$, $y_i \in \{1,\dots,C\}$ \\
+$z_i$ & logits, $z_i = W e_i + b$, with embedding $e_i$ \\
+$p_i$ & predicted class distribution, $\softmax(z_i)$ \\
+$\ell_i$ & cross-entropy loss, $-\log p_{i,y_i}$ \\
+$L_{\mathrm{train}}$ & mean training loss on the window, $n^{-1}\sum_i \ell_i$ \\
+\midrule
+$N_j$ & true count of class $j$; $\sum_j N_j = n$ \\
+$P_j$ & total predicted mass on class $j$, $\sum_i p_{i,j}$ \\
+$G$ & \textbf{bias-gradient signal}, $\sum_{i=1}^n (p_i - e_{y_i})$ \\
+\midrule
+$\epsilon_i$ & per-example error, $1 - p_{i,y_i}$ \\
+$\bar\epsilon$ & mean error on the window, $n^{-1}\sum_i \epsilon_i$ \\
+$a_j$ & \textbf{error mass} of class $j$, $\sum_{i:y_i=j}\epsilon_i$ (zero if absent) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A quantity carrying a bar or a hat ($\bar p$, $\bar O$, $\mathrm{shift}$,
+$\mathrm{offset}$) is measured on an auxiliary dataset available to the
+attacker in the sense of Section~\ref{sec:threat}'s side-data tier, never
+on the attacked window itself.
+
+\paragraph{Two gradient branches.}
+$G$ above is the \emph{bias}-gradient signal; it is not the only quantity
+these attacks read. Writing $o_i \in \R^D$ for example $i$'s embedding
+(the classifier's input) and $s_i = \one^\top o_i$ for its coordinate
+sum, the final layer's \emph{weight} gradient summed over the embedding
+dimension is
+\[
+ \widetilde G_j \;=\; \sum_{d=1}^D \nabla_{W_{jd}}
+ \;=\; \sum_{i=1}^n (p_{i,j} - [y_i=j])\,s_i ,
+\]
+an $s_i$-weighted version of the same per-example residual that defines
+$G$. In the architectures we attack, the embedding is taken after a ReLU
+(the final residual block's own activation for ResNet, the penultimate
+ReLU for VGG), so $o_i \ge 0$ coordinatewise and hence $s_i \ge 0$: the
+weighting is a genuine nonnegative average, not a sign-flipping
+distortion, but it is a distortion whenever $s_i$ varies across examples.
+LLG, LLG$^+$, and ZLG$^+$ read $\widetilde G$ (the implementation sums the
+weight gradient over the feature dimension); RLU and \ourmethod{} read
+$G$ directly from the bias gradient. Only the second branch inherits
+Lemma~\ref{lem:norm}'s bound unconditionally; for the first,
+$\|\widetilde G\|_1 \le (\max_i s_i)\,\|G\|_1$ in the worst case, and
+Section~\ref{sec:method} returns to what this costs ZLG$^+$ in
+particular, whose own calibration divides by an auxiliary estimate
+$\bar O$ of $\mathrm{mean}_i\, s_i$ for exactly this reason.
+
+\paragraph{Signal convention.}
+An implementation accumulates per-minibatch \emph{mean}-loss gradients.
+With all minibatches of size $B$ and $m$ steps per window, the accumulated
+signal differs from the example-sum $G$ above by a common positive
+factor, and possibly by a further common window normalization. Every
+formula below that we mark scale-invariant is unaffected by such a
+factor. This is a separate concern from Section~\ref{sec:threat}'s note on
+reading a weight delta as a gradient sum: that note is about whether the
+\emph{signal} is read correctly at all; this one is about a harmless
+constant once it is.
+
+\subsection{Two facts used throughout}
+\label{sec:prelim-facts}
+
+The following hold per example, and therefore for any window regardless
+of how its $C$ classes are distributed; proofs are in
+Appendix~\ref{app:proofs}.
+
+\begin{lemma}[Gradient norm is controlled by training error]
+\label{lem:norm}
+For every example, $\|p_i - e_{y_i}\|_1 = 2\epsilon_i$. Consequently
+\[
+ \|G\|_1 \;\le\; 2n\bar\epsilon \;\le\; 2n L_{\mathrm{train}} .
+\]
+\end{lemma}
+
+This is the quantitative statement of the phenomenon Section~\ref{sec:method}
+turns into a collapse argument: as the model fits its training data, the
+entire signal available to any attacker shrinks proportionally to the
+training error. It does not say the label information disappears --
+Lemma~\ref{lem:identities} shows it survives in the \emph{direction} of
+$G$ -- only that any procedure comparing $G$ against a fixed external
+magnitude will eventually be dominated by that magnitude.
+
+\begin{lemma}[Count and error-mass identity]
+\label{lem:identities}
+$G_j = P_j - N_j$, and if $N_j = 0$ then $G_j = P_j \ge 0$. Moreover
+\[
+ \sum_{j=1}^C G_j = 0 .
+\]
+\end{lemma}
+
+We use the zero-sum property once, directly: a nonzero $G$ must have a
+strictly positive coordinate, so the anchor \ourmethod{} peels against in
+Section~\ref{sec:method} always exists whenever the signal is not
+identically zero.
+
+\subsection{Baseline estimators, in unified notation}
+\label{sec:prelim-baselines}
+
+We write each published baseline surveyed in Section~\ref{sec:related} in
+the form in which it is implemented, so that Section~\ref{sec:method} can
+identify precisely which quantity each one borrows from outside the
+attacked window. Throughout, $g = G/n$ denotes the normalized signal.
+
+\paragraph{iLRG (Ma et al., 2023).}
+Recovers a class-wise embedding estimate as the ratio of the weight and
+bias gradients, $\hat e_j = \nabla_{W_j}/\nabla_{b_j}$, feeds it through
+the classifier to obtain recovered probability vectors, and solves a
+linear system for the counts by pseudo-inverse.
+
+\paragraph{LLG (Wainakh et al., 2021).}
+Reads the weight-gradient branch $\widetilde G$ (Section~\ref{sec:prelim-notation}),
+and computes a single scalar \emph{impact} from it,
+\[
+ \mathrm{impact} = \Bigl(1 + \tfrac1C\Bigr)\frac{\sum_{j : \widetilde G_j<0} \widetilde G_j}{B},
+\]
+selects every class with a negative coordinate, and then greedily assigns
+the remaining slots to the current $\argmin$ coordinate, decrementing by
+$\mathrm{impact}$ after each assignment.
+
+\paragraph{LLG$^+$ (Wainakh et al., 2021).}
+As LLG, but first subtracts an auxiliary-measured offset from the same
+branch,
+\[
+ \widetilde G \longleftarrow \widetilde G - \mathrm{offset}, \qquad
+ \mathrm{offset}_j = \text{mean non-target coordinate $j$ on auxiliary data},
+\]
+and averages the auxiliary impact with the one measured before training.
+
+\paragraph{ZLG (Geng et al., 2021; original, dummy-data form).}
+Also reads $\widetilde G$, and compares it against a per-class confidence
+$\bar p$ and the embedding-sum estimate $\bar O$ introduced above:
+\begin{equation}
+ \widehat N_j = n\Bigl(\bar p_j - \frac{\widetilde G_j}{\bar O}\Bigr),
+ \label{eq:zlg}
+\end{equation}
+followed by clipping at zero and a multiplicative rescaling to total $n$;
+dividing by $\bar O$ is this method's own attempt to undo the
+embedding-norm weighting on $\widetilde G$. In its original form, both
+$\bar p$ and $\bar O$ are estimated by passing \emph{dummy},
+synthetically generated images through the current model -- no real
+dataset is consulted, consistent with Section~\ref{sec:related}'s account
+of this method as self-contained.
+
+\paragraph{ZLG$^+$ (real-auxiliary-data form, Chen \& Vikalo, 2024).}
+Identical to \eqref{eq:zlg}, except $\bar p$ and $\bar O$ are instead
+estimated by passing real auxiliary samples through the current model.
+As Section~\ref{sec:related} notes, this substitution is Chen \&
+Vikalo's, introduced as a fairness baseline for RLU, not Geng et al.'s own
+design.
+
+\paragraph{RLU (Chen and Vikalo, 2024).}
+\begin{equation}
+ \widehat N = n \cdot \frac{\pos{\mathrm{shift}\cdot\bar\rho - G}}
+                           {\bigl\|\pos{\mathrm{shift}\cdot\bar\rho - G}\bigr\|_1},
+ \qquad \mathrm{shift} = \softmax(\mu_{\mathrm{aux}}),
+ \label{eq:rlu}
+\end{equation}
+where $\mu_{\mathrm{aux}}$ is the vector of mean logits per class measured
+on auxiliary data and $\bar\rho$ is the rate-knowledge scalar of
+Section~\ref{sec:threat}; a posterior search then perturbs $\widehat N$ in
+units of $m$ to better match $\mu_{\mathrm{aux}}$.
+
+\begin{table*}[t]
+\centering
+\caption{Which gradient branch and which external quantity each baseline
+reads, in the unified notation of this section.}
+\label{tab:baselines}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Method & Gradient branch & External quantity & Units & Form \\
+\midrule
+iLRG      & $\nabla W/\nabla b$ (ratio) & none            & ---                                        & pseudo-inverse \\
+LLG       & $\widetilde G$              & none            & ---                                        & self-calibrated greedy \\
+LLG$^+$   & $\widetilde G$              & $\mathrm{offset}$ & absolute, $\propto \bar\epsilon_{\mathrm{aux}}$ & additive \\
+ZLG       & $\widetilde G$              & $\bar p$, $\bar O$ & absolute, dummy-data estimate            & \eqref{eq:zlg} \\
+ZLG$^+$   & $\widetilde G$              & $\bar p$, $\bar O$ & absolute, $\propto \bar\epsilon_{\mathrm{aux}}$ & \eqref{eq:zlg} \\
+RLU       & $G$                         & $\mathrm{shift}$  & absolute, $\propto \bar\epsilon_{\mathrm{aux}}$ & \eqref{eq:rlu} \\
+\ourmethod{} & $G$                      & none            & ---                                        & Section~\ref{sec:method} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Section~\ref{sec:method} shows that every row depending on an absolute
+external quantity collapses as $\bar\epsilon \to 0$, and that this is not
+a coincidence of these designs but a consequence of Lemma~\ref{lem:norm}
+applied to whatever such quantity each one chooses. The gradient-branch
+column matters separately: for the four methods reading $\widetilde G$
+(LLG, LLG$^+$, ZLG, ZLG$^+$), even the \emph{signal} side of the
+comparison carries the extra embedding-norm factor introduced above, so
+Lemma~\ref{lem:norm}'s clean bound transfers to them only once that
+factor is accounted for. ZLG is listed here despite reading no real
+external dataset because $\bar p$ and $\bar O$ are still quantities
+measured \emph{outside the attacked window} -- on dummy images rather
+than on the window's own examples -- which is the property
+Theorem~\ref{thm:collapse} in Section~\ref{sec:method} actually turns on,
+not whether that outside source is real data.

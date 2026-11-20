@@ -289,7 +289,15 @@ and averages the auxiliary impact with the one measured before training.
 \end{equation}
 followed by clipping at zero and a multiplicative rescaling to total $n$;
 $\bar p$ is an auxiliary posterior and $\bar O$ an auxiliary mean embedding
-norm.
+norm. \emph{Provenance note:} estimating $\bar p$ and $\bar O$ from a real
+auxiliary set is not Geng et al.'s own design --- their paper estimates
+both quantities by passing \emph{dummy}, synthetically generated images
+through the model (a zero-shot construction, consistent with their stated
+motivation of requiring no external dataset). The real-auxiliary-data form
+used here and throughout this report follows the ``ZLG$^+$'' baseline
+introduced by Chen \& Vikalo (RLU) for a fair comparison across methods,
+all drawing on the same auxiliary set $A$; the dummy-data original is
+denoted plain ZLG where the two are distinguished.
 
 \paragraph{RLU (Chen and Vikalo, 2024).}
 \begin{equation}
