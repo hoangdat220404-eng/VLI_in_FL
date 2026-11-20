@@ -188,35 +188,79 @@ than requiring $Q$ itself to be uniform.
 See Appendix~\ref{app:proofs}.
 \end{proof}
 
-\subsection{An oracle upper bound}
+\subsection{Oracle instruments for the ablation}
+\label{sec:method-oracle}
+
+Assumption~\ref{ass:sym} does not hold for any real model. Therefore, the
+useful question is how much it costs. The assumption makes two
+idealizations. First, all present classes have the same difficulty, so
+\(r_j \equiv 1\). Second, confusion is uniform, so
+\(Q_{jk} = 1/(C-1)\). ZLI also has to choose a denominator \(G^*\), as
+described in Section~\ref{sec:method-gstar}. This gives three separate
+sources of error.
+
+Each source can be replaced by its true value, computed from a labelled
+window. An adversary in Section~\ref{sec:threat} cannot do this. We use it
+only as an experimental instrument. It lets us attribute the remaining
+error of ZLI to a specific cause.
+
+The next theorem gives the ceiling. If both \(r\) and \(Q\) are known,
+recovery is exact.
 
 \begin{theorem}[Recovery with known difficulty and confusion geometry]
 \label{thm:general}
-If the per-class difficulty $r$ and confusion matrix $Q$ (Section
-\ref{sec:prelim-notation}) were known exactly, the unique nonnegative
-solution of $G=-(I-Q^T)a$ with a zero coordinate at the known absent
-class recovers the true counts exactly.
+If the per-class difficulty \(r\) and the confusion matrix \(Q\)
+(Section~\ref{sec:prelim-notation}) were known exactly, the unique
+nonnegative solution of \(G=-(I-Q^{\top})a\) with a zero coordinate at
+the known absent class recovers the true counts exactly.
 \end{theorem}
 
 \begin{proof}[\textnormal{[proved]}]
 See Appendix~\ref{app:proofs}.
 \end{proof}
 
-\begin{corollary}[Cost of assuming $r\equiv1$ under known $Q$]
+Corollary~\ref{cor:kappa} gives a prediction for one arm. It bounds the
+loss when \(Q\) is known but \(r\) is wrongly assumed to be uniform. We
+can compare the measured result of that arm against this bound.
+
+\begin{corollary}[Cost of assuming \(r\equiv1\) under known \(Q\)]
 \label{cor:kappa}
-If $Q$ is known and exact but $r$ is (incorrectly) taken to be uniform,
-the instance-recovery rate is at least $1/\kappa$, where
-$\kappa=r_{\max}/r_{\min}$ over present classes.
+If \(Q\) is known and exact but \(r\) is wrongly taken to be uniform, the
+instance-recovery rate is at least \(1/\kappa\), where
+\(\kappa=r_{\max}/r_{\min}\) over present classes.
 \end{corollary}
 
 \begin{proof}[\textnormal{[proved]}]
 See Appendix~\ref{app:proofs}.
 \end{proof}
 
-Theorem~\ref{thm:general} is \emph{not} an attack -- $r$ and $Q$ are
-oracle inputs no adversary in Section~\ref{sec:threat}'s model has
-access to. Its role is a ceiling: \ourmethod{} (Theorem~\ref{thm:closed})
-is the deployable estimator, Theorem~\ref{thm:general} is what no amount
-of engineering beyond it can buy without that extra knowledge, and
-Corollary~\ref{cor:kappa} bounds the gap between them in terms of a
-single interpretable quantity.
+Table~\ref{tab:oracle} lists the arms.
+
+\begin{table}[t]
+\centering
+\caption{Oracle arms of the ablation (Section~\ref{sec:eval}). Each arm
+replaces one idealization of ZLI with its true value from the labelled
+window.}
+\label{tab:oracle}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{1.3cm} p{1.9cm} p{3.1cm}@{}}
+\toprule
+Arm & Replaces & Expected effect \\
+\midrule
+oracle-\(Q\) & true \(Q\); \(r\equiv1\) kept & irec \(\ge 1/\kappa\) (Cor.~\ref{cor:kappa}) \\
+oracle-\(r\) & true \(r\); uniform \(Q\) kept & not bounded; measured \\
+oracle-\(G^*\) & true mean over absent classes & isolates the denominator \\
+\midrule
+oracle-all & true \(r\) and \(Q\) & exact (Thm.~\ref{thm:general}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The arms answer two different questions. The \(r\) and \(Q\) arms measure
+the cost of the symmetry assumption. The \(G^*\) arm measures the cost of
+estimating the denominator from the signal. The arms interact, so they are
+not additive. We therefore report each arm separately, and use
+\textsc{oracle-all} as the final ceiling. The choice between
+\texttt{max} and \texttt{mean+} affects only the third arm. Thus,
+\textsc{oracle-}\(G^*\) is the ceiling for that choice.

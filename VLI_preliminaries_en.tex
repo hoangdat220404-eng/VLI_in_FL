@@ -23,12 +23,19 @@
 %  when this section is placed in the full paper. \ref{sec:threat} and
 %  \ref{sec:method} likewise point at sections defined elsewhere.
 %
-%  Cut relative to VLI_report.tex: both lemma proofs; the "difficulty
-%  spread" row $\kappa$ and the confusion-matrix row $Q$, $v$ (kept only if
-%  Method's generalized estimator / oracle bound is included -- add back
-%  the two table rows and the $Q$ definition display if so); the long
-%  discussion paragraphs around each lemma; the three-part zero-sum remark
-%  is reduced to the one consequence Method uses.
+%  Cut relative to VLI_report.tex: both lemma proofs; the Perron vector $v$
+%  (only Thm general's proof needs it, which lives in the appendix); the
+%  margin $M_i$ (only Prop jensen needs it, defined locally there); the
+%  long discussion paragraphs around each lemma; the three-part zero-sum
+%  remark is reduced to the one consequence Method uses.
+%
+%  RESTORED (were cut, then put back once Method/Collapse were written and
+%  turned out to cite them): $\widetilde G$, $o_i$, $s_i$, $r_j$,
+%  $\bar\epsilon_j$, $Q_{jk}$, $\kappa$, $E_j$, $\bar O$, $w_i$,
+%  $\simplex$, $\pos{\cdot}$, the $Q$ definition display, and the
+%  $G_j = -a_j + E_j$ / $G = -(I-Q^T)a$ clauses of Lemma~\ref{lem:identities}.
+%  Do not cut these again without checking VLI_method_en.tex and
+%  VLI_collapse_mechanism_en.tex for references to them.
 % ============================================================================
 
 \section{Preliminaries}
@@ -50,7 +57,9 @@ from $C$ classes. For example $i$:
 Symbol & Meaning \\
 \midrule
 $y_i$ & true label of example $i$, $y_i \in \{1,\dots,C\}$ \\
-$z_i$ & logits, $z_i = W e_i + b$, with embedding $e_i$ \\
+$o_i$ & embedding of example $i$ (the classifier's input), $o_i \in \R^D$ \\
+$s_i$ & embedding coordinate sum, $\one^\top o_i \ge 0$ \\
+$z_i$ & logits, $z_i = W o_i + b$ \\
 $p_i$ & predicted class distribution, $\softmax(z_i)$ \\
 $\ell_i$ & cross-entropy loss, $-\log p_{i,y_i}$ \\
 $L_{\mathrm{train}}$ & mean training loss on the window, $n^{-1}\sum_i \ell_i$ \\
@@ -58,13 +67,35 @@ $L_{\mathrm{train}}$ & mean training loss on the window, $n^{-1}\sum_i \ell_i$ \
 $N_j$ & true count of class $j$; $\sum_j N_j = n$ \\
 $P_j$ & total predicted mass on class $j$, $\sum_i p_{i,j}$ \\
 $G$ & \textbf{bias-gradient signal}, $\sum_{i=1}^n (p_i - e_{y_i})$ \\
+$\widetilde G$ & \textbf{weight-gradient signal}, $\sum_d \nabla_{W_{jd}} = \sum_i (p_{i,j}-[y_i{=}j])\,s_i$ \\
 \midrule
 $\epsilon_i$ & per-example error, $1 - p_{i,y_i}$ \\
 $\bar\epsilon$ & mean error on the window, $n^{-1}\sum_i \epsilon_i$ \\
+$\bar\epsilon_j$ & mean error of class $j$, $a_j/N_j$ (present $j$) \\
 $a_j$ & \textbf{error mass} of class $j$, $\sum_{i:y_i=j}\epsilon_i$ (zero if absent) \\
+$E_j$ & error mass flowing \emph{into} class $j$, $\sum_{i:y_i\ne j} p_{i,j}$ \\
+\midrule
+$r_j$ & relative difficulty, $\bar\epsilon_j/\bar\epsilon$; hence $a_j = N_j r_j \bar\epsilon$ \\
+$Q_{jk}$ & fraction of class $j$'s error mass sent to $k$; $Q_{jj}=0$ \\
+$\kappa$ & difficulty spread, $r_{\max}/r_{\min}$ over present classes \\
+\midrule
+$\bar O$ & auxiliary estimate of $\mathrm{mean}_i\,s_i$ \\
+$w_i$ & embedding weight, $s_i/\bar O$ \\
+$\simplex$ & scaled simplex $\{x \ge 0 : \one^\top x = n\}$; $\Pi_\simplex$ its projection \\
+$\pos{x}$ & componentwise positive part, $\max(x,0)$ \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+Both $r$ and $Q$ are \emph{ratios}: dividing by $a_j$ and by $\bar\epsilon$
+removes the error magnitude, so they carry the \emph{shape} of the model's
+confusion, not its scale. This distinction between shape and magnitude is
+what Section~\ref{sec:collapse} turns on. For $a_j>0$,
+\[
+ Q_{jk} = \frac{\sum_{i:y_i=j} p_{i,k}}{a_j}\quad (k\ne j),
+ \qquad E_j = (Q^Ta)_j ,
+\]
+and every defined row of $Q$ is nonnegative and sums to one.
 
 A quantity carrying a bar or a hat ($\bar p$, $\bar O$, $\mathrm{shift}$,
 $\mathrm{offset}$) is measured on an auxiliary dataset available to the
@@ -72,17 +103,12 @@ attacker in the sense of Section~\ref{sec:threat}'s side-data tier, never
 on the attacked window itself.
 
 \paragraph{Two gradient branches.}
-$G$ above is the \emph{bias}-gradient signal; it is not the only quantity
-these attacks read. Writing $o_i \in \R^D$ for example $i$'s embedding
-(the classifier's input) and $s_i = \one^\top o_i$ for its coordinate
-sum, the final layer's \emph{weight} gradient summed over the embedding
-dimension is
-\[
- \widetilde G_j \;=\; \sum_{d=1}^D \nabla_{W_{jd}}
- \;=\; \sum_{i=1}^n (p_{i,j} - [y_i=j])\,s_i ,
-\]
-an $s_i$-weighted version of the same per-example residual that defines
-$G$. In the architectures we attack, the embedding is taken after a ReLU
+$G$ is the \emph{bias}-gradient signal; it is not the only quantity these
+attacks read. The table's $\widetilde G$ -- the final layer's \emph{weight}
+gradient summed over the embedding dimension -- is an $s_i$-weighted
+version of the same per-example residual that defines $G$, since
+$\nabla_{W_{jd}} = \sum_i (p_{i,j}-[y_i{=}j])\,o_{i,d}$ sums over $d$ to
+give $\widetilde G_j$. In the architectures we attack, the embedding is taken after a ReLU
 (the final residual block's own activation for ResNet, the penultimate
 ReLU for VGG), so $o_i \ge 0$ coordinatewise and hence $s_i \ge 0$: the
 weighting is a genuine nonnegative average, not a sign-flipping
@@ -116,9 +142,10 @@ Appendix~\ref{app:proofs}.
 
 \begin{lemma}[Gradient norm is controlled by training error]
 \label{lem:norm}
-For every example, $\|p_i - e_{y_i}\|_1 = 2\epsilon_i$. Consequently
+For every example, \(\|p_i - e_{y_i}\|_1 = 2\epsilon_i\) exactly.
+Consequently,
 \[
- \|G\|_1 \;\le\; 2n\bar\epsilon \;\le\; 2n L_{\mathrm{train}} .
+\|G\|_1 \;\leq\; 2n\bar\epsilon \;\leq\; 2n L_{\mathrm{train}}.
 \]
 \end{lemma}
 
@@ -130,11 +157,14 @@ Lemma~\ref{lem:identities} shows it survives in the \emph{direction} of
 $G$ -- only that any procedure comparing $G$ against a fixed external
 magnitude will eventually be dominated by that magnitude.
 
-\begin{lemma}[Count and error-mass identity]
+\begin{lemma}[Count, error-mass and confusion identities]
 \label{lem:identities}
-$G_j = P_j - N_j$, and if $N_j = 0$ then $G_j = P_j \ge 0$. Moreover
+For each class \(j\), \(G_j = P_j - N_j = -a_j + E_j\), where the error
+mass flowing into class \(j\) satisfies \(E_j = (Q^{\top}a)_j\); in vector
+form, \(G = -(I - Q^{\top})a\). If \(N_j = 0\), then
+\(G_j = P_j \geq 0\). Moreover,
 \[
- \sum_{j=1}^C G_j = 0 .
+\sum_{j=1}^{C} G_j = 0.
 \]
 \end{lemma}
 

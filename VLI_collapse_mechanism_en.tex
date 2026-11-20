@@ -101,16 +101,20 @@ auxiliary estimate $\bar O$ that ZLG$^+$ and ZLG both divide by:
 
 \begin{lemma}[Weight-branch norm bound]
 \label{lem:tildenorm}
+Writing \(r_i = p_i - e_{y_i}\), the weight branch is the bias branch plus
+an embedding-weighted residual:
 \[
- \frac{\widetilde G_j}{\bar O} \;=\;
- \underbrace{\frac1n\sum_i r_{i,j}}_{\text{what the estimator assumes}}
+ \frac{\widetilde G}{\bar O} \;=\;
+ \underbrace{\sum_i r_{i}}_{\textstyle =\,G}
  \;+\;
- \underbrace{\frac1n\sum_i (w_i-1)\,r_{i,j}}_{\text{residual}},
+ \underbrace{\sum_i (w_i-1)\,r_{i}}_{\text{residual}},
  \qquad
- \Bigl\|\frac{\widetilde G}{\bar O}\Bigr\|_1 \;\le\; 2\bar\epsilon(1+V),
+ \Bigl\|\frac{\widetilde G}{\bar O}\Bigr\|_1 \;\le\; 2n\bar\epsilon(1+V),
 \]
-where $V = \bigl(\sum_i |w_i-1|\,\epsilon_i\bigr)/\bigl(\sum_i\epsilon_i\bigr)$
-measures the error-weighted deviation of $w_i$ from $1$.
+where \(V = \bigl(\sum_i |w_i-1|\,\epsilon_i\bigr)/\bigl(\sum_i\epsilon_i\bigr)\)
+measures the error-weighted deviation of \(w_i\) from \(1\). The first term
+is exactly what the estimator assumes it is reading; \(V=0\) iff every
+\(s_i = \bar O\).
 \end{lemma}
 
 \begin{proof}[\textnormal{[proved]}]

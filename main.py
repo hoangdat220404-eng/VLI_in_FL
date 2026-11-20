@@ -181,9 +181,7 @@ if getattr(args, 'load_ckpt', False):
     global_weights = global_model.state_dict()
     for _c in Clients:
         _c.load_model(global_weights)
-    _a1, _a5 = global_acc(global_model, total_loader_train)
     print('==> loaded global model checkpoint: %s' % args.check_point_path)
-    print('==> training accuracy cua mo hinh bi tan cong: top1=%.2f top5=%.2f' % (_a1, _a5))
 # ===========================================================================
 
 # Attacking after training the global model
@@ -223,9 +221,13 @@ for epoch in range(args.epochs):
         # Lưu state_dict của global model
     torch.save(global_model.state_dict(), checkpoint_path)
     print(f'---> Saved checkpoint: {checkpoint_path}')
-        
-        
-      
+
+# Accuracy thuc do cua mo hinh SE BI TAN CONG, tinh thong nhat cho ca 3 nhanh
+# (--load_ckpt, --pretrain_rounds > 0, va --pretrain_rounds 0 / mo hinh khoi
+# tao ngau nhien chua train) -- khong con dua vao so trong ten file checkpoint.
+_final_acc1, _final_acc5 = global_acc(global_model, total_loader_train)
+print('==> training accuracy cua mo hinh bi tan cong: top1=%.2f top5=%.2f' % (_final_acc1, _final_acc5))
+
 cAcc = []
 iAcc = []
 
