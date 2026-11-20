@@ -11,6 +11,7 @@ from client.client_utils import estimate_static_RLU, estimated_entropy_from_grad
 from client.client_utils import estimate_static_LLG,estimate_static_ZLG
 from client.client_utils import create_synthetic_basis_matrix, calculate_distribution_ratios, estimate_static_VLI, estimate_static_VLI_RLU, calculate_dynamic_boost
 from client.attacks import RLU_attack, LLGp_attack, ZLGp_attack, VLI_attack, LLG_attack, VLI_star_closed_form, rlu_diag_print
+from client.attacks import vli_star_gstar, VLI_STAR_GSTAR_MODES
 from client.experiments import (collapse_reference, print_collapse,
                                 run_inspection, print_inspection, stash_foreign)
 
@@ -508,11 +509,7 @@ class Client(object):
                 if _gmode == 'max':
                     prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
                 else:
-                    _G = b_grad_epochs.detach().cpu().numpy()
-                    _pos = _G[_G > 0.0]
-                    if _pos.size == 0:
-                        raise ValueError('VLI*: khong co thanh phan gradient duong cho mau so %s' % _gmode)
-                    _gv = float(_pos.mean()) if _gmode == 'mean+' else float(np.median(_pos))
+                    _gv, _ = vli_star_gstar(b_grad_epochs, _gmode)
                     prediction = VLI_star_closed_form(b_grad_epochs, args=self.args, gmax=_gv)
                 _, irec, cAcc = self.accuracy_calculation(prediction, existences, num_instances)
                 if getattr(self.args, 'vli_star_diag', False):
@@ -716,8 +713,8 @@ class Client(object):
         self.model.train()
 
         #Initilize variables
-        methods = ['iRLG', 'RLU', 'LLGp', 'ZLGp', 'LLG', 'VLI',
-                   'VLI*max', 'VLI*mean+', 'VLI*med+']
+        methods = ['iRLG', 'RLU', 'LLGp', 'ZLGp', 'LLG', 'VLI'] + \
+                  ['VLI*' + _mode for _mode in VLI_STAR_GSTAR_MODES]
         if getattr(self.args, 'vli_star_diag', False):
             methods.append('VLI*ORACLE')      # DUNG NHAN THAT - chi la chan tren, khong phai tan cong
         average_acc = {m: 0.0 for m in methods}
@@ -827,17 +824,30 @@ class Client(object):
                 # Cong thuc (n/C)(1 - G/G*) bat bien theo ti le nen moi mau so deu hop le.
                 _Gs = b_grad_epochs * self.args.local_epochs
                 _Gnp = _Gs.detach().cpu().numpy()
-                _pos = _Gnp[_Gnp > 0.0]
-                _che_do = [('VLI*max', None)]
-                if _pos.size:
-                    _che_do.append(('VLI*mean+', float(_pos.mean())))
-                    _che_do.append(('VLI*med+', float(np.median(_pos))))
-                else:
-                    _bo('VLI*mean+/med+', 'khong co thanh phan gradient duong')
+                _che_do, _gstar = [], {}
+                for _mode in VLI_STAR_GSTAR_MODES:
+                    try:
+                        _gstar[_mode] = vli_star_gstar(_Gnp, _mode)
+                        _che_do.append(('VLI*' + _mode, _gstar[_mode][0]))
+                    except ValueError as _e:
+                        _bo('VLI*' + _mode, _e)
                 if getattr(self.args, 'vli_star_diag', False):
                     _absent = num_instances == 0
                     if int(_absent.sum()) >= 2:
                         _che_do.append(('VLI*ORACLE', float(_Gnp[_absent].mean())))
+                    # G* cua tung che do chia cho G* oracle (mean G tren lop vang that):
+                    # kiem tra truc tiep mean+ <= oracle <= max, va k (so lop gap/otsu
+                    # coi la vang) so voi n_absent that.
+                    _out = ['n_absent=%d' % int(_absent.sum()),
+                            'n_pos=%d' % int((_Gnp > 0).sum())]
+                    for _mode in ('gap', 'otsu'):
+                        if _mode in _gstar:
+                            _out.append('k_%s=%d' % (_mode, _gstar[_mode][1]))
+                    if _absent.any():
+                        _orc = float(_Gnp[_absent].mean())
+                        for _mode, (_gv, _) in _gstar.items():
+                            _out.append('r_%s=%.4f' % (_mode, _gv / _orc))
+                    print('  [VLI* gstar]', ' '.join(_out))
                 for _tag, _gv in _che_do:
                     try:
                         _ghi(_tag, VLI_star_closed_form(_Gs, args=self.args, gmax=_gv))

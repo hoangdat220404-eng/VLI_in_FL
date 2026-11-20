@@ -131,6 +131,43 @@ def VLI_star_closed_form(gradients_for_prediction, args=None, n_samples=None,
     return counts
 
 
+VLI_STAR_GSTAR_MODES = ('max', 'mean+', 'med+', 'gap', 'otsu')
+
+
+def vli_star_gstar(gradients_for_prediction, mode):
+    """Label-free estimate of the VLI* divisor G* (target: mean G_j over absent classes).
+
+    Absent classes all have G_j > 0, so every mode works on the positive part.
+    'gap' and 'otsu' split the sorted positive components into a top cluster
+    (taken as the absent set) and the rest, and return the top-cluster mean:
+    'gap' cuts at the largest consecutive difference, 'otsu' maximises the
+    between-cluster variance. Returns (G*, size of the set it averages over).
+    """
+    signal = _as_numpy_vector(gradients_for_prediction)
+    if mode == 'max':
+        return float(signal.max()), 1
+    pos = np.sort(signal[signal > 0.0])[::-1]
+    if pos.size == 0:
+        raise ValueError("no positive gradient component for G* mode %s" % mode)
+    if mode == 'mean+':
+        return float(pos.mean()), int(pos.size)
+    if mode == 'med+':
+        return float(np.median(pos)), int(pos.size)
+    if pos.size == 1:
+        return float(pos[0]), 1
+    if mode == 'gap':
+        k = int(np.argmax(pos[:-1] - pos[1:])) + 1
+    elif mode == 'otsu':
+        t = np.arange(1, pos.size)
+        csum = np.cumsum(pos)
+        mean_top = csum[:-1] / t
+        mean_bot = (csum[-1] - csum[:-1]) / (pos.size - t)
+        k = int(np.argmax(t * (pos.size - t) * (mean_top - mean_bot) ** 2)) + 1
+    else:
+        raise ValueError("unknown G* mode %s" % mode)
+    return float(pos[:k].mean()), k
+
+
 def VLI_star_generalized(gradients_for_prediction, r, Q, n_samples,
                          return_diagnostics=False, tolerance=1e-8):
     """VLI* for known class difficulty r and confusion transition matrix Q.
