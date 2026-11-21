@@ -10,10 +10,11 @@ Usage (from VLI_in_FL/):
     python scripts/eval_gstar.py signals/*.npz
     python scripts/eval_gstar.py signals/*.npz --per_file      # one table per setting
 
-Selection criterion printed at the end: regret = irec(ORACLE) - irec(estimator),
-averaged per setting (file), then the WORST setting. A rule that is stable across
-settings has a small worst-setting regret, not just a good average.
-ORACLE uses the true absent set and is only an upper reference, never an attack.
+Selection criterion printed at the end: regret = (best label-free rule of that
+setting) - irec(rule), per setting (file), then the WORST setting. A rule that is
+stable across settings has a small worst-setting regret, not just a good average.
+All windows are kept, including IID-like ones with no absent class.
+ORACLE (mean G over the true absent set) is a reference only, never an attack.
 """
 import argparse
 import json
@@ -87,6 +88,45 @@ def est_fixed_point(G, n):
     return float(p[0])
 
 
+def est_mixture(G, n=None, s_floor=0.1):
+    """Two-component fit of the positive G_j, following the VLI* model itself.
+
+    absent classes   : G_j = G* x (multiplicative noise)  -> log-normal(mu, s), K of them
+    present, N_j<n/C : G_j = G* (1 - C N_j / n) in (0, G*) -> Uniform(0, G*)
+    The two components share G* = E[log-normal] = exp(mu + s^2/2): the edge of the
+    uniform part and the centre of the absent cluster are the same number, which is
+    what lets the fit tell 'few absent classes' (IID) from 'many spread ones'.
+    No mixing weight is fixed in advance, so K is estimated, not assumed.
+    """
+    from scipy.optimize import minimize
+    p = _pos(G)
+    if p.size < 3:
+        return float(p[0])
+    lx = np.log(p)
+
+    def unpack(t):
+        mu, ls, lp = t
+        s = s_floor + np.exp(ls)
+        pi = 1.0 / (1.0 + np.exp(-lp))
+        return mu, s, pi, np.exp(mu + 0.5 * s * s)
+
+    def nll(t):
+        mu, s, pi, gs = unpack(t)
+        ln_pdf = np.exp(-0.5 * ((lx - mu) / s) ** 2) / (p * s * np.sqrt(2 * np.pi))
+        uni = (p < gs) / gs
+        return -np.sum(np.log(pi * ln_pdf + (1 - pi) * uni + 1e-300))
+
+    best = None
+    for mu0 in (np.log(p[0]), np.log(p.mean()), np.log(np.median(p))):
+        for s0 in (0.15, 0.4, 0.8):
+            for pi0 in (-1.0, 0.0, 1.0):
+                r = minimize(nll, [mu0, np.log(s0), pi0], method='Nelder-Mead',
+                             options=dict(maxiter=600, xatol=1e-4, fatol=1e-6))
+                if best is None or r.fun < best.fun:
+                    best = r
+    return float(unpack(best.x)[3])
+
+
 def build_estimators():
     E = OrderedDict()
     for mode in ('max', 'mean+', 'med+', 'gap', 'otsu'):
@@ -101,6 +141,7 @@ def build_estimators():
     for w in (0.25, 0.5):
         E['blend%.0f' % (100 * w)] = est_blend(w)
     E['fixpt'] = est_fixed_point
+    E['mix'] = est_mixture
     return E
 
 
@@ -140,12 +181,15 @@ def main():
         G_all, N_all, meta = load(path)
         irec = {k: [] for k in names}
         lam = {k: [] for k in names}
-        used = 0
+        used = no_absent = 0
         for G, N in zip(G_all, N_all):
             absent = N == 0
-            if absent.sum() < 1 or not (G > 0).any():
-                continue                         # outside the model (no absent class): skip window for all
+            if not (G > 0).any():
+                continue                         # no rule is defined without a positive component
             used += 1
+            # Windows with NO absent class (IID-like) are kept: the attacker cannot know
+            # this, so every rule must still answer. ORACLE is undefined there and skipped.
+            no_absent += int(absent.sum() == 0)
             u = uniform_irec(N)
             gvals = {}
             for k, f in E.items():
@@ -153,7 +197,7 @@ def main():
                     gvals[k] = f(G, int(N.sum()))
                 except ValueError:
                     gvals[k] = None
-            gvals['ORACLE'] = float(G[absent].mean())
+            gvals['ORACLE'] = float(G[absent].mean()) if absent.any() else None
             for k in names:
                 if gvals[k] is None or gvals[k] <= 0:
                     continue
@@ -165,7 +209,7 @@ def main():
             continue
         mi = {k: float(np.mean(v)) if v else np.nan for k, v in irec.items()}
         ml = {k: float(np.nanmean(v)) if v else np.nan for k, v in lam.items()}
-        rows.append((label_of(meta, path), mi, ml, used))
+        rows.append((label_of(meta, path) + ' noabs=%d/%d' % (no_absent, used), mi, ml, used))
         if a.per_file:
             print('\n== %s  [%d windows]' % (rows[-1][0], used))
             for k in names:
@@ -176,16 +220,19 @@ def main():
     # ---- one line per setting, irec of every estimator
     short = [k for k in names]
     print('\nirec per setting (columns = G* rule)')
-    print('%-46s ' % 'setting' + ' '.join('%7s' % k[:7] for k in short))
+    print('%-58s ' % 'setting' + ' '.join('%7s' % k[:7] for k in short))
     for lab, mi, _, _ in rows:
-        print('%-46s ' % lab[:46] + ' '.join('%7.4f' % mi[k] for k in short))
+        print('%-58s ' % lab[:58] + ' '.join('%7.4f' % mi[k] for k in short))
+    print('(ORACLE is averaged only over windows that have an absent class; reference only)')
 
-    # ---- regret vs ORACLE: mean and worst over settings
-    print('\nregret = irec(ORACLE) - irec(rule), per setting')
+    # ---- regret vs the best label-free rule of each setting: mean and worst over settings.
+    # Not vs ORACLE: ORACLE is undefined on IID-like windows and is not always the best G*.
+    rules = names[:-1]
+    print('\nregret = best rule of the setting - irec(rule); sorted by WORST setting')
     print('%-11s %8s %8s %8s   %s' % ('rule', 'mean', 'worst', 'mean_l', 'worst setting'))
     summary = []
-    for k in names[:-1]:
-        reg = np.array([mi['ORACLE'] - mi[k] for _, mi, _, _ in rows])
+    for k in rules:
+        reg = np.array([max(mi[r] for r in rules) - mi[k] for _, mi, _, _ in rows])
         lam_mean = np.nanmean([ml[k] for _, _, ml, _ in rows])
         w = int(np.nanargmax(reg))
         summary.append((np.nanmax(reg), np.nanmean(reg), lam_mean, k, rows[w][0]))
