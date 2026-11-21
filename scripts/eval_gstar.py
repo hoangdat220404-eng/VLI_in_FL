@@ -127,10 +127,30 @@ def est_mixture(G, n=None, s_floor=0.1):
     return float(unpack(best.x)[3])
 
 
+def est_otsu_log(G, n=None):
+    """Otsu split computed on log G instead of G, then the top-cluster mean of G.
+
+    The absent-class values spread multiplicatively (r_max ~2.4 on CIFAR100), so
+    on the raw scale their sparse right tail looks like its own cluster and Otsu
+    cuts too high (k=17-39 vs ~50 absent). On the log scale that tail shrinks.
+    """
+    p = _pos(G)
+    if p.size == 1:
+        return float(p[0])
+    lp = np.log(p)
+    t = np.arange(1, p.size)
+    csum = np.cumsum(lp)
+    m_top = csum[:-1] / t
+    m_bot = (csum[-1] - csum[:-1]) / (p.size - t)
+    k = int(np.argmax(t * (p.size - t) * (m_top - m_bot) ** 2)) + 1
+    return float(p[:k].mean())
+
+
 def build_estimators():
     E = OrderedDict()
     for mode in ('max', 'mean+', 'med+', 'gap', 'otsu'):
         E[mode] = (lambda m: (lambda G, n=None: vli_star_gstar(G, m)[0]))(mode)
+    E['otsulog'] = est_otsu_log
     E['upmean'] = est_upper_mean
     E['upmed'] = est_upper_median
     E['geoup'] = est_geo_upper
