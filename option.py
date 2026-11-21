@@ -82,6 +82,9 @@ def args_parser():
                              'Khong bat thi giu nguyen hanh vi cu (huan luyen tu dau --pretrain_rounds vong).')
     parser.add_argument('--pretrain_rounds', type=int, default=None,
                         help='So vong FedAvg tien huan luyen khi KHONG dung --load_ckpt. Mac dinh None = giu nguyen gia tri trong main.py.')
+    parser.add_argument('--resume_round', type=int, default=None,
+                        help='Train tiep: nap --check_point_path roi chay cac vong co chi so resume_round..pretrain_rounds-1 '
+                             '(vd ckpt _23.pth -> --resume_round 24 --pretrain_rounds 30 luu _24.._29).')
     parser.add_argument('--target_acc', type=float, default=None,
                         help='Dung tien huan luyen ngay khi training accuracy top-1 (%%) vuot nguong nay; '
                              '--pretrain_rounds khi do la so vong toi da.')

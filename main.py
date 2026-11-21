@@ -173,9 +173,11 @@ if getattr(args, 'oracle_stats', False):
     print('==> ORACLE STATS: dung du lieu that cua client thay cho aux '
           '(KHONG phai tan cong kha thi - chi de phan tich)')
 
-if getattr(args, 'load_ckpt', False):
+if args.resume_round is not None and args.pretrain_rounds is None:
+    raise SystemExit('--resume_round can --pretrain_rounds (tong so vong, vd 30)')
+if getattr(args, 'load_ckpt', False) or args.resume_round is not None:
     if not args.check_point_path:
-        raise SystemExit('--load_ckpt can --check_point_path')
+        raise SystemExit('--load_ckpt / --resume_round can --check_point_path')
     _ck = torch.load(args.check_point_path, map_location=torch.device('cpu'), weights_only=False)
     global_model.load_state_dict(_ck)
     global_weights = global_model.state_dict()
@@ -188,19 +190,27 @@ if getattr(args, 'load_ckpt', False):
 args.epochs = 5 # Giả sử bạn set lại epoch > 0 để chạy
 best_acc = 80.0
 
-if getattr(args, 'load_ckpt', False):
+start_round = 0
+if args.resume_round is not None:
+    # train tiep tu checkpoint: vong (chi so 0) resume_round .. pretrain_rounds-1,
+    # ten file checkpoint tiep tuc danh so tu resume_round
+    start_round = args.resume_round
+    args.epochs = args.pretrain_rounds
+elif getattr(args, 'load_ckpt', False):
     args.epochs = 0                      # da nap checkpoint -> bo qua tien huan luyen
 elif getattr(args, 'pretrain_rounds', None) is not None:
     args.epochs = args.pretrain_rounds
-print('==> so vong tien huan luyen: %d' % args.epochs)
+print('==> so vong tien huan luyen: %d (bat dau tu chi so %d)' % (max(args.epochs - start_round, 0), start_round))
 
-for epoch in range(args.epochs):
+for epoch in range(start_round, args.epochs):
     local_weights = []
     clients_models = []
     global_model.train()
     print(f'\n | Global Training Round : {epoch+1} |\n')
 
-    sampled_clients = np.random.choice(args.n_clients, K , replace=False)
+    # K o dong 96 bi gan de thanh n_classes (lay tu repo goc) -> voi CIFAR100
+    # K=100 > n_clients=10 va np.random.choice crash. Dung lai so client lay mau.
+    sampled_clients = np.random.choice(args.n_clients, int(args.sampling_rate * args.n_clients), replace=False)
     for idx in sampled_clients:
         Clients[idx].load_model(global_weights)
         Clients[idx].local_training(epoch)
