@@ -352,3 +352,20 @@ else:
         # previously np.mean() of a running SUM, i.e. the total over clients, not the average
         print_method_averages(all_cAcc, all_iAcc, f'Average over {args.n_clients} clients')
 
+if args.dump_signal:
+    from client.client_base import SIGNAL_DUMP
+    import json
+    if not SIGNAL_DUMP:
+        print('==> dump_signal: khong co cua so nao de ghi (can --scheme VLI_star hoac All, fedavg)')
+    else:
+        _meta = dict(dataset=args.dataset, model=args.model, alpha=args.alpha, batch_size=args.batch_size,
+                     local_epochs=args.local_epochs, lr=args.lr, n_classes=args.n_classes,
+                     check_point_path=args.check_point_path if args.load_ckpt else '',
+                     attacked_acc=float(_final_acc1))
+        np.savez_compressed(args.dump_signal,
+                            client=np.array([c for c, _, _ in SIGNAL_DUMP], dtype=np.int64),
+                            G=np.stack([g for _, g, _ in SIGNAL_DUMP]),
+                            N=np.stack([n for _, _, n in SIGNAL_DUMP]),
+                            meta=np.array(json.dumps(_meta)))
+        print('==> dump_signal: %d cua so -> %s' % (len(SIGNAL_DUMP), args.dump_signal))
+

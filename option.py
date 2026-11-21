@@ -26,6 +26,9 @@ def args_parser():
     parser.add_argument('--vli_star_gmax', default='max', choices=('max', 'mean+', 'med+', 'gap', 'otsu'),
                         help="VLI*: mau so G*. 'max' = ban goc; 'mean+'/'med+' = trung binh/trung vi cua cac G_j > 0 (ben voi nham lan khong deu); "
                              "'gap'/'otsu' = trung binh cum G_j > 0 tren cung, tach bang khoang trong lon nhat / Otsu")
+    parser.add_argument('--dump_signal', type=str, default=None,
+                        help='Ghi tin hieu VLI* (tong bias-grad moi cua so) + so nhan that ra file .npz nay, '
+                             'de danh gia cac cach chon G* offline (scripts/eval_gstar.py). Dung voi --scheme VLI_star hoac All.')
     parser.add_argument('--vli_star_diag', action='store_true',
                         help='VLI*: in chan tren oracle cua G_max va cac bien the phan vi (dung nhan that, chi de phan tich)')
     

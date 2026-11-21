@@ -22,6 +22,10 @@ import copy
 import scipy
 np.set_printoptions(suppress=True, precision=2)
 
+# --dump_signal: moi cua so them (client, G = tong bias-grad cua cua so, so nhan that).
+# main.py ghi ra .npz o cuoi; scripts/eval_gstar.py danh gia cac cach chon G* offline.
+SIGNAL_DUMP = []
+
 
 class Client(object):
     def __init__(self, args, Loader_train, idx, device, model_name, aux_dataset):
@@ -505,6 +509,9 @@ class Client(object):
                 window_targets = torch.cat(targets_epochs, dim=0).numpy()
                 num_instances = np.bincount(window_targets, minlength=self.args.n_classes)
                 existences = (num_instances > 0).astype(int).tolist()
+                if getattr(self.args, 'dump_signal', None):
+                    SIGNAL_DUMP.append((self.idx, b_grad_epochs.detach().cpu().numpy().astype(np.float64).copy(),
+                                        np.asarray(num_instances, dtype=np.int64).copy()))
                 _gmode = getattr(self.args, 'vli_star_gmax', 'max')
                 if _gmode == 'max':
                     prediction = VLI_star_closed_form(b_grad_epochs, args=self.args)
@@ -824,6 +831,9 @@ class Client(object):
                 # Cong thuc (n/C)(1 - G/G*) bat bien theo ti le nen moi mau so deu hop le.
                 _Gs = b_grad_epochs * self.args.local_epochs
                 _Gnp = _Gs.detach().cpu().numpy()
+                if getattr(self.args, 'dump_signal', None):
+                    SIGNAL_DUMP.append((self.idx, _Gnp.astype(np.float64).copy(),
+                                        np.asarray(num_instances, dtype=np.int64).copy()))
                 _che_do, _gstar = [], {}
                 for _mode in VLI_STAR_GSTAR_MODES:
                     try:
