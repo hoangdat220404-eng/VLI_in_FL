@@ -1,0 +1,16 @@
+# Python >= 3.8. A CUDA GPU is required (the code calls .cuda() directly).
+#
+# Install PyTorch from the CUDA wheel index first, then the rest:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r requirements.txt
+
+# Core: main.py, models.py, client/, llg.py, DataSampling.py
+torch>=1.13          # torch.load(..., weights_only=False) needs >= 1.13
+torchvision>=0.14    # CIFAR10/100, SVHN, MNIST, ImageFolder, CelebA
+numpy
+scipy
+scikit-learn         # sklearn.metrics.accuracy_score
+Pillow               # DataSampling.py (Image.open); usually installed with torchvision
+
+# Analysis scripts only: scripts/plot_fig1_linechart_style.py, figure/Line_chart.py
+matplotlib
